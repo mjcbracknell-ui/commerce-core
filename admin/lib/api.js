@@ -2,6 +2,17 @@ export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:40
 
 let refreshing = null;
 
+export function getActiveStoreId() {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem('cc_store_id');
+}
+
+export function setActiveStoreId(storeId) {
+  if (typeof window === 'undefined') return;
+  if (storeId) window.localStorage.setItem('cc_store_id', storeId);
+  else window.localStorage.removeItem('cc_store_id');
+}
+
 async function refreshSession() {
   if (!refreshing) {
     refreshing = fetch(`${API_BASE}/api/auth/refresh`, {
@@ -20,7 +31,16 @@ async function refreshSession() {
 }
 
 function buildOptions({ method = 'GET', body, headers = {} } = {}) {
-  const options = { method, credentials: 'include', headers: { Accept: 'application/json', ...headers } };
+  const storeId = getActiveStoreId();
+  const options = {
+    method,
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      ...(storeId ? { 'X-Store-Id': storeId } : {}),
+      ...headers,
+    },
+  };
   if (body instanceof FormData) {
     options.body = body;
   } else if (body !== undefined) {

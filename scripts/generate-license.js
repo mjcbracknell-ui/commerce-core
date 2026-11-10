@@ -75,7 +75,7 @@ if (api) {
   }
 }
 
-console.log('CommerceCore license');
+console.log('Commerce Core license');
 console.log('  Domain :', payload.domain);
 console.log('  Tier   :', payload.tier);
 console.log('  Perpetual:', true);

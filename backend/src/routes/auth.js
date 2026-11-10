@@ -16,7 +16,8 @@ import {
   consumeRefreshToken,
   revokeRefreshToken,
 } from '../lib/tokens.js';
-import { slugify, uniqueHandle } from '../lib/slug.js';
+import { slugify } from '../lib/slug.js';
+import { storeDomainForSlug, storefrontUrl } from '../lib/storefront-url.js';
 
 const router = express.Router();
 const ACCESS_TTL_MS = 15 * 60 * 1000;
@@ -30,6 +31,29 @@ const publicUser = (user) => ({
   twoFAEnabled: user.twoFAEnabled,
   created_at: user.createdAt,
 });
+
+const storeSummary = (store, role) => ({
+  id: store.id,
+  name: store.name,
+  domain: store.domain,
+  currency: store.currency,
+  role,
+  storefront_url: storefrontUrl(store.domain),
+});
+
+/** Pick a free subdomain for a new store, appending -2, -3, ... on collision. */
+async function nextStoreDomain(name) {
+  const slug = slugify(name, 'store');
+  const stores = await prisma.store.findMany({ select: { domain: true } });
+  const taken = new Set(stores.map((store) => store.domain));
+  let candidate = slug;
+  let n = 2;
+  while (taken.has(storeDomainForSlug(candidate))) {
+    candidate = `${slug}-${n}`;
+    n += 1;
+  }
+  return { slug: candidate, domain: storeDomainForSlug(candidate) };
+}
 
 async function setSession(res, user, req) {
   const token = signAccessToken(user);
@@ -87,11 +111,7 @@ router.post(
     if (exists) throw badRequest('An account with this email already exists');
 
     const password = await bcrypt.hash(req.body.password, 12);
-    const domainTaken = await prisma.store.findMany({ select: { domain: true } });
-    const domain = uniqueHandle(
-      `${slugify(req.body.storeName, 'store')}.localhost`,
-      domainTaken.map((s) => s.domain),
-    );
+    const { domain } = await nextStoreDomain(req.body.storeName);
 
     const { user, store } = await prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
@@ -120,7 +140,7 @@ router.post(
       token,
       refresh_token: refreshToken,
       user: publicUser(user),
-      store: { id: store.id, name: store.name, domain: store.domain, currency: store.currency },
+      store: storeSummary(store, 'owner'),
     });
   }),
 );
@@ -161,13 +181,7 @@ router.get(
     if (!user) throw notFound('User not found');
     return res.json({
       user: publicUser(user),
-      stores: user.stores.map((membership) => ({
-        id: membership.store.id,
-        name: membership.store.name,
-        domain: membership.store.domain,
-        currency: membership.store.currency,
-        role: membership.role,
-      })),
+      stores: user.stores.map((membership) => storeSummary(membership.store, membership.role)),
     });
   }),
 );
@@ -176,7 +190,7 @@ router.post(
   '/2fa/setup',
   authenticate,
   asyncHandler(async (req, res) => {
-    const secret = speakeasy.generateSecret({ name: `CommerceCore (${req.user.email})`, issuer: 'CommerceCore' });
+    const secret = speakeasy.generateSecret({ name: `Commerce Core (${req.user.email})`, issuer: 'Commerce Core' });
     await prisma.user.update({ where: { id: req.user.id }, data: { twoFASecret: secret.base32 } });
     const qr = await QRCode.toDataURL(secret.otpauth_url);
     return res.json({ secret: secret.base32, otpauth_url: secret.otpauth_url, qr });
@@ -235,6 +249,38 @@ router.post(
       data: { revokedAt: new Date() },
     });
     return res.json({ ok: true });
+  }),
+);
+
+const createStoreSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  currency: z.string().length(3).default('USD'),
+});
+
+/** Add another storefront under the signed-in account. */
+router.post(
+  '/stores',
+  authenticate,
+  validateBody(createStoreSchema),
+  asyncHandler(async (req, res) => {
+    const currency = req.body.currency.toUpperCase();
+    const { domain } = await nextStoreDomain(req.body.name);
+    const store = await prisma.store.create({
+      data: {
+        name: req.body.name,
+        domain,
+        currency,
+        settings: {
+          currency,
+          taxRate: 0,
+          shippingFlatRate: 0,
+          freeShippingThreshold: 100,
+          supportEmail: req.user.email,
+        },
+        users: { create: { userId: req.user.id, role: 'owner' } },
+      },
+    });
+    return res.status(201).json({ store: storeSummary(store, 'owner') });
   }),
 );
 

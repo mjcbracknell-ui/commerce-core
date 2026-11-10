@@ -224,7 +224,7 @@ export default function SettingsPage() {
           <div className="card">
             <h2>Plan</h2>
             <p className="muted small">
-              CommerceCore perpetual license. No subscription, no transaction fees. Theme and app marketplace
+              Commerce Core perpetual license. No subscription, no transaction fees. Theme and app marketplace
               revenue share is optional.
             </p>
             <p className="small">

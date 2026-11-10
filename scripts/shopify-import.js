@@ -232,7 +232,7 @@ async function main() {
     process.exit(1);
   }
 
-  log(`Signing in to CommerceCore at ${apiBase} as ${email}…`);
+  log(`Signing in to Commerce Core at ${apiBase} as ${email}…`);
   const authToken = await login();
 
   if (csvPath) {

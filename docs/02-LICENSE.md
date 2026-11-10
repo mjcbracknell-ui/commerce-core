@@ -1,6 +1,6 @@
 # License System — buy once
 
-CommerceCore licenses are RSA-2048 signed payloads. The customer's backend verifies locally with a public key; no phone-home is required. An optional heartbeat checks revocation.
+Commerce Core licenses are RSA-2048 signed payloads. The customer's backend verifies locally with a public key; no phone-home is required. An optional heartbeat checks revocation.
 
 ## Generate the keypair (you, the seller)
 

@@ -6,7 +6,7 @@ import { round2 } from '../src/lib/pricing.js';
 const money = (value) => Math.round(Number(value) * 100) / 100;
 
 function placeholderImage(label, from, to) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="800" height="1000" fill="url(#g)"/><circle cx="400" cy="430" r="210" fill="rgba(255,255,255,0.12)"/><text x="400" y="450" font-family="Georgia, serif" font-size="46" fill="rgba(255,255,255,0.92)" text-anchor="middle">${label}</text><text x="400" y="540" font-family="Helvetica, sans-serif" font-size="18" letter-spacing="6" fill="rgba(255,255,255,0.7)" text-anchor="middle">COMMERCECORE</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="800" height="1000" fill="url(#g)"/><circle cx="400" cy="430" r="210" fill="rgba(255,255,255,0.12)"/><text x="400" y="450" font-family="Georgia, serif" font-size="46" fill="rgba(255,255,255,0.92)" text-anchor="middle">${label}</text><text x="400" y="540" font-family="Helvetica, sans-serif" font-size="18" letter-spacing="6" fill="rgba(255,255,255,0.7)" text-anchor="middle">COMMERCE CORE</text></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
@@ -14,7 +14,7 @@ const CATALOG = [
   {
     title: 'Heavyweight Organic Tee',
     handle: 'heavyweight-organic-tee',
-    vendor: 'Northwind',
+    vendor: 'Commerce Core',
     type: 'T-Shirts',
     tags: ['apparel', 'organic', 'bestseller'],
     price: 32,
@@ -28,7 +28,7 @@ const CATALOG = [
   {
     title: 'Cropped Denim Jacket',
     handle: 'cropped-denim-jacket',
-    vendor: 'Northwind',
+    vendor: 'Commerce Core',
     type: 'Outerwear',
     tags: ['apparel', 'denim'],
     price: 148,
@@ -42,7 +42,7 @@ const CATALOG = [
   {
     title: 'Merino Crew Sweater',
     handle: 'merino-crew-sweater',
-    vendor: 'Northwind',
+    vendor: 'Commerce Core',
     type: 'Knitwear',
     tags: ['apparel', 'merino', 'new'],
     price: 120,
@@ -56,7 +56,7 @@ const CATALOG = [
   {
     title: 'Relaxed Pleated Chino',
     handle: 'relaxed-pleated-chino',
-    vendor: 'Northwind',
+    vendor: 'Commerce Core',
     type: 'Trousers',
     tags: ['apparel', 'bestseller'],
     price: 88,
@@ -70,7 +70,7 @@ const CATALOG = [
   {
     title: 'Canvas Weekender',
     handle: 'canvas-weekender',
-    vendor: 'Northwind Supply',
+    vendor: 'Commerce Core',
     type: 'Bags',
     tags: ['accessories', 'travel'],
     price: 165,
@@ -84,7 +84,7 @@ const CATALOG = [
   {
     title: 'Leather Card Holder',
     handle: 'leather-card-holder',
-    vendor: 'Northwind Supply',
+    vendor: 'Commerce Core',
     type: 'Accessories',
     tags: ['accessories', 'leather'],
     price: 58,
@@ -98,7 +98,7 @@ const CATALOG = [
   {
     title: 'Ribbed Wool Beanie',
     handle: 'ribbed-wool-beanie',
-    vendor: 'Northwind',
+    vendor: 'Commerce Core',
     type: 'Accessories',
     tags: ['accessories', 'new'],
     price: 38,
@@ -112,7 +112,7 @@ const CATALOG = [
   {
     title: 'Linen Overshirt',
     handle: 'linen-overshirt',
-    vendor: 'Northwind',
+    vendor: 'Commerce Core',
     type: 'Shirts',
     tags: ['apparel', 'linen', 'new'],
     price: 110,
@@ -126,7 +126,7 @@ const CATALOG = [
   {
     title: 'Everyday Court Sneaker',
     handle: 'everyday-court-sneaker',
-    vendor: 'Northwind Supply',
+    vendor: 'Commerce Core',
     type: 'Footwear',
     tags: ['footwear', 'bestseller'],
     price: 135,
@@ -140,7 +140,7 @@ const CATALOG = [
   {
     title: 'Cotton Crew Socks (3-pack)',
     handle: 'cotton-crew-socks-3-pack',
-    vendor: 'Northwind',
+    vendor: 'Commerce Core',
     type: 'Accessories',
     tags: ['accessories', 'essentials'],
     price: 24,
@@ -154,7 +154,7 @@ const CATALOG = [
   {
     title: 'Field Watch',
     handle: 'field-watch',
-    vendor: 'Northwind Supply',
+    vendor: 'Commerce Core',
     type: 'Accessories',
     tags: ['accessories', 'gift'],
     price: 220,
@@ -168,7 +168,7 @@ const CATALOG = [
   {
     title: 'Stoneware Mug',
     handle: 'stoneware-mug',
-    vendor: 'Northwind Supply',
+    vendor: 'Commerce Core',
     type: 'Home',
     tags: ['home', 'gift', 'new'],
     price: 28,
@@ -191,7 +191,7 @@ const CUSTOMERS = [
 ];
 
 async function main() {
-  console.log('Seeding CommerceCore demo data…');
+  console.log('Seeding Commerce Core demo data…');
 
   const password = await bcrypt.hash('Admin123!', 12);
   const user = await prisma.user.upsert({
@@ -205,14 +205,14 @@ async function main() {
     taxRate: 0,
     shippingFlatRate: 6.95,
     freeShippingThreshold: 100,
-    supportEmail: 'hello@northwind.test',
+    supportEmail: 'hello@commercecore.test',
     orderPrefix: '',
   };
 
   const store = await prisma.store.upsert({
     where: { domain: 'localhost' },
-    update: { name: 'Northwind Supply', currency: 'USD', settings },
-    create: { name: 'Northwind Supply', domain: 'localhost', currency: 'USD', settings },
+    update: { name: 'Commerce Core', currency: 'USD', settings },
+    create: { name: 'Commerce Core', domain: 'localhost', currency: 'USD', settings },
   });
 
   await prisma.storeUser.upsert({
@@ -301,12 +301,12 @@ async function main() {
   for (const collection of collections) {
     const record = await prisma.collection.upsert({
       where: { storeId_handle: { storeId: store.id, handle: collection.handle } },
-      update: { title: collection.title },
+      update: { title: collection.title, descriptionHtml: `<p>${collection.title} from Commerce Core.</p>` },
       create: {
         storeId: store.id,
         title: collection.title,
         handle: collection.handle,
-        descriptionHtml: `<p>${collection.title} from Northwind Supply.</p>`,
+        descriptionHtml: `<p>${collection.title} from Commerce Core.</p>`,
       },
     });
     const count = await prisma.collectionProduct.count({ where: { collectionId: record.id } });

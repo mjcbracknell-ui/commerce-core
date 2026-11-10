@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { api } from '../lib/api';
+import { api, setActiveStoreId } from '../lib/api';
 
 const links = [
   ['/', 'Dashboard'],
@@ -13,9 +13,10 @@ const links = [
   ['/themes', 'Themes'],
   ['/apps', 'Apps & API'],
   ['/settings', 'Settings'],
+  ['/stores', 'Storefronts'],
 ];
 
-export default function Sidebar({ store, user }) {
+export default function Sidebar({ store, stores = [], user }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -24,13 +25,38 @@ export default function Sidebar({ store, user }) {
     router.replace('/login');
   };
 
+  const switchStore = (event) => {
+    setActiveStoreId(event.target.value);
+    window.location.reload();
+  };
+
   return (
     <aside className="sidebar">
       <div>
         <div className="logo">
-          {store?.name || 'CommerceCore'}
-          <span>Admin · {store?.currency || 'USD'}</span>
+          {store?.name || 'Commerce Core'}
+          <span>{store ? `Admin · ${store.currency}` : 'Store platform'}</span>
         </div>
+        {stores.length ? (
+          <select
+            value={store?.id || ''}
+            onChange={switchStore}
+            aria-label="Active store"
+            style={{
+              marginTop: 14,
+              background: 'rgba(255,255,255,0.08)',
+              color: '#fff',
+              borderColor: 'rgba(255,255,255,0.18)',
+              fontSize: '0.8rem',
+            }}
+          >
+            {stores.map((item) => (
+              <option key={item.id} value={item.id} style={{ color: '#191817' }}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
       </div>
       <nav className="side-nav">
         {links.map(([href, label]) => {
@@ -44,9 +70,10 @@ export default function Sidebar({ store, user }) {
       </nav>
       <div className="sidebar-foot">
         <span>{user?.email}</span>
-        <a href="http://localhost:3000" target="_blank" rel="noreferrer">
+        <a href={store?.storefront_url || 'http://localhost:3000'} target="_blank" rel="noreferrer">
           View storefront ↗
         </a>
+        <Link href="/stores">Manage storefronts</Link>
         <button className="btn secondary small" type="button" onClick={logout}>
           Sign out
         </button>

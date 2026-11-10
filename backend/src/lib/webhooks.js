@@ -105,5 +105,5 @@ export function dispatchEventLater(storeId, topic, payload) {
 }
 
 export async function sendTestDelivery(webhook) {
-  return deliver(webhook, 'webhooks/test', { message: 'CommerceCore test webhook', webhookId: webhook.id });
+  return deliver(webhook, 'webhooks/test', { message: 'Commerce Core test webhook', webhookId: webhook.id });
 }

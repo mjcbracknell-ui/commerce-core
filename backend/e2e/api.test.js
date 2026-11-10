@@ -20,8 +20,11 @@ const suffix = Date.now().toString(36);
 const buyerEmail = `buyer-${suffix}@example.com`;
 const discountCode = `E2E${suffix.toUpperCase()}`;
 
-async function request(pathname, { method = 'GET', body, useAuth = true, token: overrideToken } = {}) {
-  const headers = { Accept: 'application/json' };
+async function request(
+  pathname,
+  { method = 'GET', body, useAuth = true, token: overrideToken, headers: extraHeaders = {} } = {},
+) {
+  const headers = { Accept: 'application/json', ...extraHeaders };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const authToken = overrideToken ?? token;
   if (useAuth && authToken) headers.Authorization = `Bearer ${authToken}`;
@@ -90,7 +93,7 @@ test('session, refresh rotation and current user', async () => {
   assert.equal(me.status, 200);
   assert.equal(me.data.user.email, 'admin@demo.com');
   assert.equal(me.data.stores.length, 1);
-  assert.equal(me.data.stores[0].name, 'Northwind Supply');
+  assert.equal(me.data.stores[0].name, 'Commerce Core');
 
   const refreshed = await request('/api/auth/refresh', {
     method: 'POST',
@@ -108,6 +111,92 @@ test('session, refresh rotation and current user', async () => {
   });
   assert.equal(replay.status, 401, 'rotated refresh tokens must not be reusable');
   refreshToken = refreshed.data.refresh_token;
+});
+
+test('self-serve signup provisions a storefront isolated from other stores', async () => {
+  const email = `merchant-${suffix}@example.com`;
+  const registered = await request('/api/auth/register', {
+    method: 'POST',
+    useAuth: false,
+    body: {
+      email,
+      password: 'Merchant123!',
+      name: 'Merchant One',
+      storeName: `Acme ${suffix}`,
+      currency: 'USD',
+    },
+  });
+  assert.equal(registered.status, 201, JSON.stringify(registered.data));
+  const store = registered.data.store;
+  assert.ok(store.domain.endsWith('.localhost'), 'new stores get a subdomain under the platform domain');
+  assert.equal(store.storefront_url, `http://${store.domain}:3000`);
+  assert.equal(store.role, 'owner');
+  const merchantToken = registered.data.token;
+
+  const merchantSession = await request('/api/auth/me', { token: merchantToken });
+  assert.equal(merchantSession.data.stores.length, 1);
+  assert.equal(merchantSession.data.stores[0].id, store.id);
+  assert.equal(merchantSession.data.stores[0].storefront_url, store.storefront_url);
+
+  // A brand-new store starts empty, while the original store keeps its catalog.
+  const empty = await request('/api/storefront/products', {
+    useAuth: false,
+    headers: { 'x-store-domain': store.domain },
+  });
+  assert.equal(empty.status, 200);
+  assert.equal(empty.data.count, 0);
+
+  const created = await request('/api/admin/products', {
+    method: 'POST',
+    token: merchantToken,
+    headers: { 'x-store-id': store.id },
+    body: {
+      title: 'Merchant Mug',
+      status: 'active',
+      variants: [{ title: 'Default Title', sku: `MER-${suffix}`, price: 18, inventory: 5 }],
+    },
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+
+  const ownCatalog = await request('/api/storefront/products', {
+    useAuth: false,
+    headers: { 'x-store-domain': store.domain },
+  });
+  assert.equal(ownCatalog.data.count, 1);
+  assert.equal(ownCatalog.data.products[0].title, 'Merchant Mug');
+
+  const primaryCatalog = await request('/api/storefront/products?limit=100', {
+    useAuth: false,
+    headers: { 'x-store-domain': 'localhost' },
+  });
+  assert.ok(primaryCatalog.data.products.length >= 12);
+  assert.ok(
+    !primaryCatalog.data.products.some((item) => item.title === 'Merchant Mug'),
+    'a tenant product must not leak into another storefront',
+  );
+
+  const unknown = await request('/api/storefront/products', {
+    useAuth: false,
+    headers: { 'x-store-domain': `missing-${suffix}.localhost` },
+  });
+  assert.equal(unknown.status, 404, 'an unknown storefront host must not fall back to the first store');
+
+  const ownerSession = await request('/api/auth/me');
+  const primaryStoreId = ownerSession.data.stores[0].id;
+  const forbidden = await request('/api/admin/products', {
+    token: merchantToken,
+    headers: { 'x-store-id': primaryStoreId },
+  });
+  assert.equal(forbidden.status, 403, 'a merchant cannot manage another store');
+
+  const second = await request('/api/auth/stores', {
+    method: 'POST',
+    token: merchantToken,
+    body: { name: `Second ${suffix}`, currency: 'EUR' },
+  });
+  assert.equal(second.status, 201, JSON.stringify(second.data));
+  assert.equal(second.data.store.currency, 'EUR');
+  assert.notEqual(second.data.store.domain, store.domain);
 });
 
 test('product CRUD', async () => {
@@ -566,6 +655,115 @@ test('Shopify importer CLI imports products, customers and orders from a mock Ad
   assert.equal(ordersAfterRerun.data.orders[0].id, importedOrder.id);
 });
 
+test('Shopify importer follows pagination Link headers', async () => {
+  const handles = [`paged-one-${suffix}`, `paged-two-${suffix}`];
+  const seen = [];
+  const mock = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    seen.push(`${url.pathname}${url.search}`);
+    const send = (payload, headers = {}) => {
+      res.writeHead(200, { 'Content-Type': 'application/json', ...headers });
+      res.end(JSON.stringify(payload));
+    };
+
+    if (url.pathname.endsWith('/products.json')) {
+      const secondPage = url.searchParams.get('page_info') === 'page-2';
+      const product = secondPage
+        ? {
+            id: 9002,
+            title: `Paged Two ${suffix}`,
+            handle: handles[1],
+            status: 'active',
+            variants: [
+              { title: 'Default Title', sku: `PAGED-2-${suffix}`, price: '22.00', inventory_quantity: 3 },
+            ],
+          }
+        : {
+            id: 9001,
+            title: `Paged One ${suffix}`,
+            handle: handles[0],
+            status: 'active',
+            variants: [
+              { title: 'Default Title', sku: `PAGED-1-${suffix}`, price: '11.00', inventory_quantity: 4 },
+            ],
+          };
+      const headers = secondPage
+        ? {}
+        : {
+            Link: `<http://127.0.0.1:${mock.address().port}/admin/api/2024-01/products.json?limit=250&page_info=page-2>; rel="next"`,
+          };
+      return send({ products: [product] }, headers);
+    }
+    if (url.pathname.endsWith('/customers.json')) return send({ customers: [] });
+    if (url.pathname.endsWith('/orders.json')) return send({ orders: [] });
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  const port = await new Promise((resolve, reject) => {
+    mock.once('error', reject);
+    mock.listen(0, '127.0.0.1', () => resolve(mock.address().port));
+  });
+
+  const scriptPath = fileURLToPath(new URL('../../scripts/shopify-import.js', import.meta.url));
+  let result;
+  try {
+    result = await new Promise((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [
+          scriptPath,
+          '--shopify-api',
+          `http://127.0.0.1:${port}`,
+          '--token',
+          'shpat_pages',
+          '--api',
+          env.baseUrl,
+        ],
+        { env: { ...process.env, CC_EMAIL: 'admin@demo.com', CC_PASSWORD: 'Admin123!' } },
+      );
+      let stdout = '';
+      let stderr = '';
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error(`Paginated importer timed out.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+      }, 60000);
+
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+      child.on('error', (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        resolve({ code, stdout, stderr });
+      });
+    });
+  } finally {
+    await new Promise((resolve) => mock.close(resolve));
+  }
+
+  assert.equal(result.code, 0, `importer failed.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  assert.match(result.stdout, /fetched 1 products/);
+  assert.match(result.stdout, /fetched 2 products/);
+  assert.match(result.stdout, /imported products 1-2 \(2\)/);
+  assert.ok(
+    seen.some((entry) => entry.includes('page_info=page-2')),
+    'the importer should request the Link header next page',
+  );
+
+  for (const handle of handles) {
+    const product = await request(`/api/storefront/products/${handle}`, { useAuth: false });
+    assert.equal(product.status, 200, JSON.stringify(product.data));
+    assert.equal(product.data.product.handle, handle);
+  }
+});
+
 test('Stripe webhook verifies signatures and marks an order paid', async () => {
   const created = await request('/api/admin/orders', {
     method: 'POST',
@@ -754,6 +952,79 @@ test('Stripe checkout async payment and unhandled events are handled safely', as
   const unchanged = await request(`/api/admin/orders/${ignoredOrder.id}`);
   assert.equal(unchanged.data.order.financial_status, 'pending');
   assert.equal(unchanged.data.order.paid_at, null);
+});
+
+test('duplicate Stripe event IDs are ignored before payment is captured', async () => {
+  const created = await request('/api/admin/orders', {
+    method: 'POST',
+    body: {
+      email: `dedupe-${suffix}@example.com`,
+      items: [{ variantId: variant.id, quantity: 1 }],
+      paymentMethod: 'manual',
+      markPaid: false,
+    },
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+  const order = created.data.order;
+  assert.equal(order.financial_status, 'pending');
+
+  const stripe = new Stripe('sk_test_e2e');
+  const eventId = `evt_once_${suffix}`;
+  const session = { id: `cs_once_${suffix}`, object: 'checkout.session', metadata: { orderId: order.id } };
+  const send = (event) => {
+    const payload = JSON.stringify(event);
+    const signature = stripe.webhooks.generateTestHeaderString({ payload, secret: 'whsec_e2e' });
+    return fetch(`${env.baseUrl}/api/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': signature },
+      body: payload,
+    });
+  };
+
+  // The first delivery is recorded before the order is paid.
+  const first = await send({
+    id: eventId,
+    object: 'event',
+    type: 'checkout.session.completed',
+    data: { object: { ...session, payment_status: 'unpaid' } },
+  });
+  assert.equal(first.status, 200);
+  assert.deepEqual(await first.json(), { received: true });
+
+  const stillPending = await request(`/api/admin/orders/${order.id}`);
+  assert.equal(stillPending.data.order.financial_status, 'pending');
+
+  // A replay of that event id cannot capture payment, even though the payload
+  // now reports a successful payment.
+  const replay = await send({
+    id: eventId,
+    object: 'event',
+    type: 'checkout.session.completed',
+    data: {
+      object: { ...session, payment_status: 'paid', payment_intent: `pi_once_${suffix}` },
+    },
+  });
+  assert.equal(replay.status, 200);
+  assert.deepEqual(await replay.json(), { received: true });
+
+  const afterReplay = await request(`/api/admin/orders/${order.id}`);
+  assert.equal(afterReplay.data.order.financial_status, 'pending');
+  assert.equal(afterReplay.data.order.paid_at, null);
+
+  // A genuinely new event id is still processed normally.
+  const fresh = await send({
+    id: `evt_once_pay_${suffix}`,
+    object: 'event',
+    type: 'checkout.session.completed',
+    data: {
+      object: { ...session, payment_status: 'paid', payment_intent: `pi_once_${suffix}` },
+    },
+  });
+  assert.equal(fresh.status, 200);
+
+  const paid = await request(`/api/admin/orders/${order.id}`);
+  assert.equal(paid.data.order.financial_status, 'paid');
+  assert.ok(paid.data.order.paid_at);
 });
 
 test('two-factor login requires and accepts a TOTP code', async () => {

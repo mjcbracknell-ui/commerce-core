@@ -14,7 +14,7 @@ export default async function HomePage() {
   const products = productData?.products || [];
   const collections = collectionData?.collections || [];
   const currency = storeData?.store?.currency || 'USD';
-  const storeName = storeData?.store?.name || 'CommerceCore';
+  const storeName = storeData?.store?.name || 'Commerce Core';
 
   return (
     <main>
@@ -62,7 +62,7 @@ export default async function HomePage() {
             <div className="empty">
               <h3>No products yet</h3>
               <p>Run the seed script or add products in the admin to see them here.</p>
-              <a className="btn secondary" href="http://localhost:3001">
+              <a className="btn secondary" href={process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001'}>
                 Open admin
               </a>
             </div>

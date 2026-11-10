@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { cartCount, useCart } from '../lib/cart';
 
-export default function Header({ storeName = 'CommerceCore' }) {
+export default function Header({ storeName = 'Commerce Core' }) {
   const items = useCart((state) => state.items);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);

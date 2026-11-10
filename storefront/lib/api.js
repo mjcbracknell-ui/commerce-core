@@ -1,3 +1,5 @@
+import { getStoreDomain } from './tenant';
+
 const API_BASE = (
   process.env.INTERNAL_API_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
@@ -6,11 +8,20 @@ const API_BASE = (
 
 export { API_BASE };
 
+function tenantHeaders(extra = {}) {
+  const domain = getStoreDomain();
+  return {
+    Accept: 'application/json',
+    ...(domain ? { 'x-store-domain': domain } : {}),
+    ...extra,
+  };
+}
+
 export async function apiGet(path, fallback = null) {
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       cache: 'no-store',
-      headers: { Accept: 'application/json' },
+      headers: tenantHeaders(),
     });
     if (!response.ok) return fallback;
     return await response.json();

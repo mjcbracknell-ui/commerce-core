@@ -23,6 +23,19 @@ export async function stripeWebhookHandler(req, res) {
     return res.status(400).send(`Webhook Error: ${error.message}`);
   }
 
+  // Claim the event before touching any order. The primary key makes this
+  // atomic, so a replay is a no-op even if the first delivery has not finished
+  // marking the order paid yet.
+  try {
+    await prisma.processedStripeEvent.create({ data: { id: event.id, type: event.type } });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.json({ received: true });
+    }
+    console.error('[stripe] could not record event:', error);
+    return res.status(500).json({ error: 'Webhook handler failed' });
+  }
+
   try {
     if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
       const session = event.data.object;
@@ -48,6 +61,8 @@ export async function stripeWebhookHandler(req, res) {
 
     return res.json({ received: true });
   } catch (error) {
+    // Release the claim so Stripe's retry can process the event again.
+    await prisma.processedStripeEvent.delete({ where: { id: event.id } }).catch(() => {});
     console.error('[stripe] handler error:', error);
     return res.status(500).json({ error: 'Webhook handler failed' });
   }
