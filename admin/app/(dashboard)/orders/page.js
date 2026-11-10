@@ -64,6 +64,7 @@ export default function OrdersPage() {
           <select value={fulfillment} onChange={(event) => setFulfillment(event.target.value)}>
             <option value="">All fulfilment</option>
             <option value="unfulfilled">Unfulfilled</option>
+            <option value="partially_fulfilled">Partially fulfilled</option>
             <option value="fulfilled">Fulfilled</option>
           </select>
           {loading ? <span className="muted small">Loading…</span> : null}

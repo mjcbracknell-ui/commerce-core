@@ -682,10 +682,145 @@ textarea:focus {
   color: #2d5c2a;
 }
 
-.pill.pending {
+.pill.pending,
+.pill.partially_fulfilled {
   background: #fff4e8;
   border-color: #eed2b5;
   color: #7a4415;
+}
+
+/* Customer account */
+.account-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 44px);
+  align-items: start;
+  margin-top: 32px;
+}
+
+.account-sidebar {
+  display: grid;
+  gap: 22px;
+  position: sticky;
+  top: 96px;
+  padding: 22px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.account-sidebar nav {
+  display: grid;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.account-sidebar nav a:hover {
+  color: var(--accent);
+}
+
+.account-sidebar .remove-link {
+  justify-self: start;
+}
+
+.account-main {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.account-panel {
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: clamp(20px, 3vw, 30px);
+}
+
+.account-panel h2 {
+  font-size: 1.6rem;
+  margin-bottom: 4px;
+}
+
+.account-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.account-form {
+  display: grid;
+  gap: 14px;
+}
+
+.account-form-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.account-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.account-check input {
+  width: auto;
+}
+
+.address-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.address-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.address-card p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.address-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.address-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.account-auth {
+  width: min(440px, 100%);
+  margin: 0 auto;
+}
+
+.account-auth form {
+  margin-top: 20px;
+}
+
+.account-auth .notice {
+  margin-bottom: 16px;
 }
 
 /* Footer */
@@ -773,6 +908,20 @@ textarea:focus {
 
   .summary {
     position: static;
+  }
+
+  .account-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .account-sidebar {
+    position: static;
+  }
+
+  .account-sidebar nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
   }
 }
 

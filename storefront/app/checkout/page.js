@@ -16,6 +16,8 @@ export default function CheckoutPage() {
 
   const [cart, setCart] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [account, setAccount] = useState(null);
+  const [savedAddresses, setSavedAddresses] = useState([]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -42,16 +44,9 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (!payload.length) return;
     let alive = true;
-    Promise.all([
-      apiFetch('/api/storefront/cart', {
-        method: 'POST',
-        body: { items: payload, discountCode: discountCode || undefined, giftCardCode: giftCardCode || undefined },
-      }),
-      apiFetch('/api/storefront/settings'),
-    ])
-      .then(([cartData, settingsData]) => {
+    apiFetch('/api/storefront/settings')
+      .then((settingsData) => {
         if (!alive) return;
-        setCart(cartData.cart);
         setSettings(settingsData);
         setForm((current) => ({
           ...current,
@@ -63,9 +58,88 @@ export default function CheckoutPage() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, discountCode, giftCardCode]);
+  }, [signature]);
+
+  useEffect(() => {
+    if (!payload.length) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      apiFetch('/api/storefront/cart', {
+        method: 'POST',
+        body: {
+          items: payload,
+          discountCode: discountCode || undefined,
+          giftCardCode: giftCardCode || undefined,
+          shippingAddress: {
+            country: form.country,
+            region: form.region,
+            postal_code: form.postalCode,
+            city: form.city,
+          },
+        },
+      })
+        .then((cartData) => {
+          if (alive) setCart(cartData.cart);
+        })
+        .catch((err) => alive && setError(err.message));
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature, discountCode, giftCardCode, form.country, form.region]);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch('/api/storefront/account')
+      .then((data) => {
+        if (!alive) return;
+        setAccount(data.customer);
+        setSavedAddresses(data.addresses || []);
+        const preferred = (data.addresses || []).find((address) => address.is_default) || data.addresses?.[0];
+        setForm((current) => ({
+          ...current,
+          email: current.email || data.customer.email || '',
+          firstName: current.firstName || preferred?.first_name || data.customer.first_name || '',
+          lastName: current.lastName || preferred?.last_name || data.customer.last_name || '',
+          phone: current.phone || preferred?.phone || data.customer.phone || '',
+          ...(preferred
+            ? {
+                address1: current.address1 || preferred.address1 || '',
+                address2: current.address2 || preferred.address2 || '',
+                city: current.city || preferred.city || '',
+                region: current.region || preferred.region || '',
+                postalCode: current.postalCode || preferred.postal_code || '',
+                country: current.country || preferred.country || current.country,
+              }
+            : {}),
+        }));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+
+  const applySavedAddress = (event) => {
+    const address = savedAddresses.find((item) => item.id === event.target.value);
+    if (!address) return;
+    setForm((current) => ({
+      ...current,
+      firstName: address.first_name || '',
+      lastName: address.last_name || '',
+      address1: address.address1 || '',
+      address2: address.address2 || '',
+      city: address.city || '',
+      region: address.region || '',
+      postalCode: address.postal_code || '',
+      country: address.country || current.country,
+      phone: address.phone || current.phone,
+    }));
+  };
 
   const submit = async (event) => {
     event.preventDefault();
@@ -138,10 +212,37 @@ export default function CheckoutPage() {
               <label htmlFor="email">Email</label>
               <input id="email" type="email" required value={form.email} onChange={update('email')} />
             </div>
+            {account ? (
+              <p className="product-meta" style={{ marginTop: 10 }}>
+                Signed in as {account.email}. Your details are prefilled from your account.
+              </p>
+            ) : (
+              <p className="product-meta" style={{ marginTop: 10 }}>
+                <Link href="/account/login?next=/checkout" className="link-arrow">
+                  Sign in
+                </Link>{' '}
+                to prefill your details and see this order in your account.
+              </p>
+            )}
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.2rem' }}>Shipping address</h2>
+            {savedAddresses.length ? (
+              <div className="field" style={{ marginBottom: 16 }}>
+                <label htmlFor="savedAddress">Saved address</label>
+                <select id="savedAddress" defaultValue="" onChange={applySavedAddress}>
+                  <option value="">Choose a saved address</option>
+                  {savedAddresses.map((address) => (
+                    <option key={address.id} value={address.id}>
+                      {address.label ? `${address.label} — ` : ''}
+                      {address.address1}, {address.city}
+                      {address.is_default ? ' (default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div className="row">
               <div className="field">
                 <label htmlFor="firstName">First name</label>

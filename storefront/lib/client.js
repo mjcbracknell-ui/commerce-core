@@ -11,6 +11,7 @@ export async function apiFetch(path, { method = 'GET', body, headers = {} } = {}
       ...headers,
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
+    credentials: 'include',
     cache: 'no-store',
   });
 
@@ -25,6 +26,7 @@ export async function apiFetch(path, { method = 'GET', body, headers = {} } = {}
     const error = new Error(data?.error || `Request failed (${response.status})`);
     error.status = response.status;
     error.details = data?.details;
+    error.data = data;
     throw error;
   }
   return data;

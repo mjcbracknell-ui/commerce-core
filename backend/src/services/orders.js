@@ -1,6 +1,6 @@
 import prisma from '../db.js';
 import { badRequest, conflict, notFound } from '../lib/http.js';
-import { computeTotals, discountIsActive, round2, storeSettings } from '../lib/pricing.js';
+import { computeTotals, destinationFromAddress, discountIsActive, round2, storeSettings } from '../lib/pricing.js';
 import { dispatchEventLater } from '../lib/webhooks.js';
 import { sendOrderConfirmation } from '../lib/mailer.js';
 import { serializeOrder } from '../lib/serializers.js';
@@ -9,7 +9,7 @@ import { serializeOrder } from '../lib/serializers.js';
  * Resolve cart lines against live product data and price the cart server-side.
  * Accepts [{ variantId, quantity }] (or [{ id, quantity }]).
  */
-export async function resolveCart(store, { items = [], discountCode, giftCardCode } = {}) {
+export async function resolveCart(store, { items = [], discountCode, giftCardCode, shippingAddress = null } = {}) {
   const quantities = new Map();
   for (const item of items) {
     const variantId = item.variantId || item.id;
@@ -73,11 +73,26 @@ export async function resolveCart(store, { items = [], discountCode, giftCardCod
     if (giftCard.expiresAt && giftCard.expiresAt < new Date()) throw badRequest('Gift card has expired');
   }
 
+  const [shippingZones, taxRegions] = await Promise.all([
+    prisma.shippingZone.findMany({
+      where: { storeId: store.id, active: true },
+      include: { rates: { where: { active: true }, orderBy: { position: 'asc' } } },
+      orderBy: { position: 'asc' },
+    }),
+    prisma.taxRegion.findMany({
+      where: { storeId: store.id, active: true },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    }),
+  ]);
+
   const totals = computeTotals({
     lines,
     discount,
     giftCard,
     settings: storeSettings(store),
+    shippingZones,
+    taxRegions,
+    destination: destinationFromAddress(shippingAddress),
   });
 
   return { lines, discount, giftCard, totals };
@@ -108,7 +123,7 @@ export async function placeOrder({
     throw badRequest('A valid email is required');
   }
 
-  const cart = await resolveCart(store, { items, discountCode, giftCardCode });
+  const cart = await resolveCart(store, { items, discountCode, giftCardCode, shippingAddress });
   const settings = storeSettings(store);
   if (financialStatus === 'auto') {
     financialStatus = cart.totals.total === 0 ? 'paid' : 'pending';

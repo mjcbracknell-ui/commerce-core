@@ -39,6 +39,15 @@ async function send({ to, subject, html }) {
 const money = (value, currency = 'USD') =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(value) || 0);
 
+const escapeHtml = (value) =>
+  String(value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
+
 const wrapper = (title, body) => `<!doctype html>
 <html><body style="margin:0;background:#f6f7f9;font-family:Helvetica,Arial,sans-serif;color:#111">
   <div style="max-width:560px;margin:0 auto;padding:32px 20px">
@@ -71,26 +80,84 @@ export async function sendOrderConfirmation(order, store) {
   });
 }
 
-export async function sendOrderFulfilled(order, store) {
+export async function sendOrderFulfilled(order, store, fulfillment = null) {
   if (!order.email) return { sent: false, reason: 'no_email' };
+  const partial = order.fulfillmentStatus === 'partially_fulfilled';
+  const trackingNumber = fulfillment?.trackingNumber || order.trackingNumber;
+  const itemRows = (fulfillment?.lineItems || [])
+    .map(
+      (item) =>
+        `<tr><td style="padding:6px 0">${escapeHtml(item.title)}${item.variantTitle ? ` - ${escapeHtml(item.variantTitle)}` : ''} × ${Number(item.quantity) || 0}</td></tr>`,
+    )
+    .join('');
+  const tracking = trackingNumber
+    ? `<p>Tracking number: <b>${escapeHtml(trackingNumber)}</b></p>`
+    : '';
+  const trackingLink = fulfillment?.trackingUrl
+    ? `<p><a href="${escapeHtml(fulfillment.trackingUrl)}">Track your shipment</a></p>`
+    : '';
+
   return send({
     to: order.email,
-    subject: `Order ${order.number} shipped - ${store?.name || 'Commerce Core'}`,
+    subject: `Order ${order.number} ${partial ? 'partially shipped' : 'shipped'} - ${store?.name || 'Commerce Core'}`,
     html: wrapper(
-      `Order ${order.number} is on its way`,
-      `<p>Your order has been fulfilled.</p>${
-        order.trackingNumber ? `<p>Tracking number: <b>${order.trackingNumber}</b></p>` : ''
-      }`,
+      partial ? `Part of order ${order.number} is on its way` : `Order ${order.number} is on its way`,
+      `<p>${partial ? 'A shipment from your order has been fulfilled.' : 'Your order has been fulfilled.'}</p>${
+        itemRows ? `<table width="100%" style="border-collapse:collapse">${itemRows}</table>` : ''
+      }${tracking}${trackingLink}`,
     ),
   });
 }
 
-export async function sendOrderRefunded(order, store) {
+export async function sendCustomerVerification({ email, code, store }) {
+  return send({
+    to: email,
+    subject: `Verify your ${store?.name || 'store'} account`,
+    html: wrapper(
+      'Verify your customer account',
+      `<p>Use this code to finish creating your account:</p>
+       <p style="font-size:28px;letter-spacing:6px;font-weight:700">${escapeHtml(code)}</p>
+       <p style="color:#555">This code expires in 15 minutes. If you did not request it, ignore this email.</p>`,
+    ),
+  });
+}
+
+export async function sendOrderRefunded(order, store, amount = null) {
   if (!order.email) return { sent: false, reason: 'no_email' };
+  const refundText =
+    amount == null
+      ? `We have refunded order ${order.number}.`
+      : `We have refunded ${money(amount, order.currency)} for order ${order.number}.`;
   return send({
     to: order.email,
     subject: `Refund issued for order ${order.number} - ${store?.name || 'Commerce Core'}`,
-    html: wrapper(`Refund issued`, `<p>We have refunded order ${order.number}.</p>`),
+    html: wrapper(`Refund issued`, `<p>${refundText}</p>`),
+  });
+}
+
+export async function sendCustomerPasswordReset({ email, code, store }) {
+  return send({
+    to: email,
+    subject: `Reset your ${store?.name || 'store'} password`,
+    html: wrapper(
+      'Reset your password',
+      `<p>Use this code to choose a new password:</p>
+       <p style="font-size:28px;letter-spacing:6px;font-weight:700">${escapeHtml(code)}</p>
+       <p style="color:#555">This code expires in 15 minutes. If you did not request a reset, you can ignore this email.</p>`,
+    ),
+  });
+}
+
+export async function sendCustomerEmailChange({ email, code, store }) {
+  return send({
+    to: email,
+    subject: `Confirm your new ${store?.name || 'store'} email`,
+    html: wrapper(
+      'Confirm your new email address',
+      `<p>Use this code to finish changing the email on your account:</p>
+       <p style="font-size:28px;letter-spacing:6px;font-weight:700">${escapeHtml(code)}</p>
+       <p style="color:#555">This code expires in 15 minutes. If you did not request this change, ignore this email.</p>`,
+    ),
   });
 }
 

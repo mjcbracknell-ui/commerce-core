@@ -15,6 +15,10 @@ let variant;
 let collection;
 let discount;
 let orderId;
+let buyerOrderNumber;
+let customerToken;
+let customerEmail;
+let customerPassword;
 
 const suffix = Date.now().toString(36);
 const buyerEmail = `buyer-${suffix}@example.com`;
@@ -349,6 +353,278 @@ test('checkout creates an order, decrements stock and supports lookup', async ()
   assert.equal(fresh.data.product.variants[0].inventory, 8);
 
   orderId = order.id;
+  buyerOrderNumber = order.number;
+});
+
+test('customer accounts verify email, save addresses and show order history', async () => {
+  const password = 'Customer123!';
+  const registered = await request('/api/storefront/account/register', {
+    method: 'POST',
+    useAuth: false,
+    body: {
+      email: buyerEmail,
+      password,
+      firstName: 'E2E',
+      lastName: 'Buyer',
+    },
+  });
+  assert.equal(registered.status, 201, JSON.stringify(registered.data));
+  const code = String(registered.data.verification_code || '');
+  assert.match(code, /^\d{6}$/, 'local registration should expose the verification code');
+
+  const unverifiedLogin = await request('/api/storefront/account/login', {
+    method: 'POST',
+    useAuth: false,
+    body: { email: buyerEmail, password },
+  });
+  assert.equal(unverifiedLogin.status, 403);
+  assert.equal(unverifiedLogin.data.verification_required, true);
+
+  const wrongCode = code === '000000' ? '111111' : '000000';
+  const rejected = await request('/api/storefront/account/verify', {
+    method: 'POST',
+    useAuth: false,
+    body: { email: buyerEmail, code: wrongCode },
+  });
+  assert.equal(rejected.status, 400);
+
+  const verified = await request('/api/storefront/account/verify', {
+    method: 'POST',
+    useAuth: false,
+    body: { email: buyerEmail, code },
+  });
+  assert.equal(verified.status, 200, JSON.stringify(verified.data));
+  assert.equal(verified.data.customer.email_verified, true);
+  customerToken = verified.data.token;
+  assert.ok(customerToken);
+
+  const login = await request('/api/storefront/account/login', {
+    method: 'POST',
+    useAuth: false,
+    body: { email: buyerEmail, password },
+  });
+  assert.equal(login.status, 200, JSON.stringify(login.data));
+  customerToken = login.data.token;
+  customerEmail = buyerEmail;
+  customerPassword = password;
+  const customerHeaders = { Authorization: `Bearer ${customerToken}` };
+
+  const account = await request('/api/storefront/account', {
+    useAuth: false,
+    headers: customerHeaders,
+  });
+  assert.equal(account.status, 200, JSON.stringify(account.data));
+  assert.equal(account.data.customer.email, buyerEmail);
+  assert.ok(
+    account.data.orders.some((order) => order.number === buyerOrderNumber),
+    'a verified guest order should appear in the account order history',
+  );
+
+  const firstAddress = await request('/api/storefront/account/addresses', {
+    method: 'POST',
+    useAuth: false,
+    headers: customerHeaders,
+    body: {
+      label: 'Home',
+      firstName: 'E2E',
+      lastName: 'Buyer',
+      address1: '1 Test Street',
+      city: 'Testville',
+      region: 'TS',
+      postalCode: '12345',
+      country: 'United States',
+      isDefault: true,
+    },
+  });
+  assert.equal(firstAddress.status, 201, JSON.stringify(firstAddress.data));
+  assert.equal(firstAddress.data.address.is_default, true);
+
+  const secondAddress = await request('/api/storefront/account/addresses', {
+    method: 'POST',
+    useAuth: false,
+    headers: customerHeaders,
+    body: {
+      label: 'Work',
+      firstName: 'E2E',
+      lastName: 'Buyer',
+      address1: '2 Second Street',
+      city: 'Testville',
+      region: 'TS',
+      postalCode: '12345',
+      country: 'United States',
+      isDefault: true,
+    },
+  });
+  assert.equal(secondAddress.status, 201, JSON.stringify(secondAddress.data));
+
+  let addresses = await request('/api/storefront/account/addresses', {
+    useAuth: false,
+    headers: customerHeaders,
+  });
+  assert.equal(addresses.status, 200);
+  assert.equal(addresses.data.addresses.length, 2);
+  assert.equal(
+    addresses.data.addresses.filter((address) => address.is_default).length,
+    1,
+    'only one address may be the default',
+  );
+  const first = addresses.data.addresses.find((address) => address.id === firstAddress.data.address.id);
+  assert.equal(first.is_default, false);
+
+  const renamed = await request(`/api/storefront/account/addresses/${secondAddress.data.address.id}`, {
+    method: 'PATCH',
+    useAuth: false,
+    headers: customerHeaders,
+    body: { label: 'Office' },
+  });
+  assert.equal(renamed.status, 200, JSON.stringify(renamed.data));
+  assert.equal(renamed.data.address.label, 'Office');
+
+  const orderDetail = await request(`/api/storefront/account/orders/${buyerOrderNumber}`, {
+    useAuth: false,
+    headers: customerHeaders,
+  });
+  assert.equal(orderDetail.status, 200, JSON.stringify(orderDetail.data));
+  assert.equal(orderDetail.data.order.number, buyerOrderNumber);
+
+  const deleted = await request(`/api/storefront/account/addresses/${secondAddress.data.address.id}`, {
+    method: 'DELETE',
+    useAuth: false,
+    headers: customerHeaders,
+  });
+  assert.equal(deleted.status, 200, JSON.stringify(deleted.data));
+  addresses = await request('/api/storefront/account/addresses', {
+    useAuth: false,
+    headers: customerHeaders,
+  });
+  assert.equal(addresses.data.addresses.length, 1);
+  assert.equal(addresses.data.addresses[0].is_default, true, 'deleting the default promotes another address');
+
+  const rotated = await request('/api/storefront/account/refresh', {
+    method: 'POST',
+    useAuth: false,
+    body: { refresh_token: login.data.refresh_token },
+  });
+  assert.equal(rotated.status, 200, JSON.stringify(rotated.data));
+  const replay = await request('/api/storefront/account/refresh', {
+    method: 'POST',
+    useAuth: false,
+    body: { refresh_token: login.data.refresh_token },
+  });
+  assert.equal(replay.status, 401, 'customer refresh tokens must rotate');
+
+  const loggedOut = await request('/api/storefront/account/logout', {
+    method: 'POST',
+    useAuth: false,
+    body: { refresh_token: rotated.data.refresh_token },
+  });
+  assert.equal(loggedOut.status, 200);
+});
+
+test('customer password reset, email change and session control', async () => {
+  const signIn = async (password) =>
+    request('/api/storefront/account/login', {
+      method: 'POST',
+      useAuth: false,
+      body: { email: customerEmail, password },
+    });
+
+  const first = await signIn(customerPassword);
+  assert.equal(first.status, 200, JSON.stringify(first.data));
+  const firstHeaders = { Authorization: `Bearer ${first.data.token}` };
+  const sessions = await request('/api/storefront/account/sessions', {
+    useAuth: false,
+    headers: firstHeaders,
+  });
+  assert.equal(sessions.status, 200);
+  assert.ok(sessions.data.sessions.length >= 1);
+  assert.ok(sessions.data.sessions.some((session) => session.current), 'the current session should be identified');
+
+  const second = await signIn(customerPassword);
+  assert.equal(second.status, 200);
+  const secondHeaders = { Authorization: `Bearer ${second.data.token}` };
+  const revoked = await request('/api/storefront/account/sessions/revoke-others', {
+    method: 'POST',
+    useAuth: false,
+    headers: secondHeaders,
+  });
+  assert.equal(revoked.status, 200);
+  assert.ok(revoked.data.revoked >= 1, 'other sessions should be revoked');
+  const revokedAccess = await request('/api/storefront/account', {
+    useAuth: false,
+    headers: firstHeaders,
+  });
+  assert.equal(revokedAccess.status, 401, 'a revoked session must reject its existing access token');
+  const remaining = await request('/api/storefront/account/sessions', {
+    useAuth: false,
+    headers: secondHeaders,
+  });
+  assert.equal(remaining.data.sessions.length, 1);
+  assert.equal(remaining.data.sessions[0].current, true);
+
+  const changed = await request('/api/storefront/account/change-password', {
+    method: 'POST',
+    useAuth: false,
+    headers: secondHeaders,
+    body: { currentPassword: customerPassword, newPassword: 'ChangedPass123!' },
+  });
+  assert.equal(changed.status, 200, JSON.stringify(changed.data));
+  assert.equal((await signIn(customerPassword)).status, 401, 'the old password must stop working');
+  assert.equal((await signIn('ChangedPass123!')).status, 200);
+
+  const forgot = await request('/api/storefront/account/forgot-password', {
+    method: 'POST',
+    useAuth: false,
+    body: { email: customerEmail },
+  });
+  assert.equal(forgot.status, 200, JSON.stringify(forgot.data));
+  const resetCode = String(forgot.data.reset_code || '');
+  assert.match(resetCode, /^\d{6}$/, 'local password resets should expose the code');
+
+  const reset = await request('/api/storefront/account/reset-password', {
+    method: 'POST',
+    useAuth: false,
+    body: { email: customerEmail, code: resetCode, password: 'ResetPass123!' },
+  });
+  assert.equal(reset.status, 200, JSON.stringify(reset.data));
+  assert.equal((await signIn('ChangedPass123!')).status, 401);
+
+  const afterReset = await signIn('ResetPass123!');
+  assert.equal(afterReset.status, 200);
+  const resetHeaders = { Authorization: `Bearer ${afterReset.data.token}` };
+
+  const newEmail = `buyer-moved-${suffix}@example.com`;
+  const emailChange = await request('/api/storefront/account/email', {
+    method: 'PATCH',
+    useAuth: false,
+    headers: resetHeaders,
+    body: { email: newEmail, password: 'ResetPass123!' },
+  });
+  assert.equal(emailChange.status, 200, JSON.stringify(emailChange.data));
+  const emailCode = String(emailChange.data.verification_code || '');
+  assert.match(emailCode, /^\d{6}$/, 'local email changes should expose the code');
+
+  const emailVerified = await request('/api/storefront/account/email/verify', {
+    method: 'POST',
+    useAuth: false,
+    headers: resetHeaders,
+    body: { code: emailCode },
+  });
+  assert.equal(emailVerified.status, 200, JSON.stringify(emailVerified.data));
+  assert.equal(emailVerified.data.customer.email, newEmail);
+
+  customerEmail = newEmail;
+  customerPassword = 'ResetPass123!';
+  customerToken = emailVerified.data.token;
+  const account = await request('/api/storefront/account', {
+    useAuth: false,
+    headers: { Authorization: `Bearer ${customerToken}` },
+  });
+  assert.equal(account.status, 200);
+  assert.ok(
+    account.data.orders.some((order) => order.number === buyerOrderNumber),
+    'changing email must not lose the existing order history',
+  );
 });
 
 test('admin order actions mark paid, fulfil and refund', async () => {
@@ -358,13 +634,44 @@ test('admin order actions mark paid, fulfil and refund', async () => {
   assert.equal(paid.status, 200);
   assert.equal(paid.data.order.financial_status, 'paid');
 
+  const detail = await request(`/api/admin/orders/${orderId}`);
+  assert.equal(detail.status, 200);
+  const variantId = detail.data.order.line_items[0].variantId;
+
+  const partial = await request(`/api/admin/orders/${orderId}/fulfill`, {
+    method: 'POST',
+    body: {
+      items: [{ variantId, quantity: 1 }],
+      trackingNumber: 'E2E-TRACK-1',
+      trackingUrl: 'https://example.com/track/1',
+      carrier: 'UPS',
+      notifyCustomer: false,
+    },
+  });
+  assert.equal(partial.status, 200, JSON.stringify(partial.data));
+  assert.equal(partial.data.order.fulfillment_status, 'partially_fulfilled');
+  assert.equal(partial.data.order.fulfillments.length, 1);
+  assert.equal(partial.data.fulfillment.line_items[0].quantity, 1);
+  assert.equal(partial.data.fulfillment.tracking_url, 'https://example.com/track/1');
+
   const fulfilled = await request(`/api/admin/orders/${orderId}/fulfill`, {
     method: 'POST',
-    body: { trackingNumber: 'E2E-TRACK-1', notifyCustomer: false },
+    body: {
+      items: [{ variantId, quantity: 1 }],
+      trackingNumber: 'E2E-TRACK-2',
+      notifyCustomer: false,
+    },
   });
   assert.equal(fulfilled.status, 200);
   assert.equal(fulfilled.data.order.fulfillment_status, 'fulfilled');
-  assert.equal(fulfilled.data.order.tracking_number, 'E2E-TRACK-1');
+  assert.equal(fulfilled.data.order.fulfillments.length, 2);
+  assert.equal(fulfilled.data.order.tracking_number, 'E2E-TRACK-2');
+
+  const overFulfill = await request(`/api/admin/orders/${orderId}/fulfill`, {
+    method: 'POST',
+    body: { items: [{ variantId, quantity: 1 }], notifyCustomer: false },
+  });
+  assert.equal(overFulfill.status, 400);
 
   const refunded = await request(`/api/admin/orders/${orderId}/refund`, {
     method: 'POST',
@@ -376,6 +683,124 @@ test('admin order actions mark paid, fulfil and refund', async () => {
   const usage = await request('/api/admin/discounts');
   const used = usage.data.discounts.find((item) => item.code === discountCode);
   assert.equal(used.usage_count, 1);
+});
+
+test('line-item returns restock, refund and exchange', async () => {
+  const checkout = await request('/api/storefront/checkout', {
+    method: 'POST',
+    useAuth: false,
+    body: {
+      email: customerEmail,
+      items: [{ variantId: variant.id, quantity: 2 }],
+      paymentMethod: 'manual',
+      shippingAddress: {
+        first_name: 'E2E',
+        last_name: 'Buyer',
+        address1: '1 Test Street',
+        city: 'Testville',
+        region: 'TS',
+        postal_code: '12345',
+        country: 'United States',
+      },
+    },
+  });
+  assert.equal(checkout.status, 201, JSON.stringify(checkout.data));
+  const returnOrder = checkout.data.order;
+
+  await request(`/api/admin/orders/${returnOrder.id}/mark-paid`, { method: 'POST' });
+  const fulfilled = await request(`/api/admin/orders/${returnOrder.id}/fulfill`, {
+    method: 'POST',
+    body: { notifyCustomer: false },
+  });
+  assert.equal(fulfilled.status, 200, JSON.stringify(fulfilled.data));
+  assert.equal(fulfilled.data.order.fulfillment_status, 'fulfilled');
+
+  const customerLogin = await request('/api/storefront/account/login', {
+    method: 'POST',
+    useAuth: false,
+    body: { email: customerEmail, password: customerPassword },
+  });
+  assert.equal(customerLogin.status, 200, JSON.stringify(customerLogin.data));
+  const customerHeaders = { Authorization: `Bearer ${customerLogin.data.token}` };
+
+  const requested = await request(`/api/storefront/account/orders/${returnOrder.number}/returns`, {
+    method: 'POST',
+    useAuth: false,
+    headers: customerHeaders,
+    body: {
+      items: [{ variantId: variant.id, quantity: 1, reason: 'damaged' }],
+      resolution: 'refund',
+      note: 'Arrived damaged',
+    },
+  });
+  assert.equal(requested.status, 201, JSON.stringify(requested.data));
+  assert.equal(requested.data.return.status, 'requested');
+  assert.equal(requested.data.return.line_items[0].reason, 'damaged');
+  const refundReturnId = requested.data.return.id;
+
+  const adminReturns = await request('/api/admin/returns');
+  assert.equal(adminReturns.status, 200);
+  assert.ok(adminReturns.data.returns.some((item) => item.id === refundReturnId));
+
+  const received = await request(`/api/admin/returns/${refundReturnId}/receive`, {
+    method: 'POST',
+    body: { restock: true },
+  });
+  assert.equal(received.status, 200, JSON.stringify(received.data));
+  assert.equal(received.data.return.status, 'received');
+
+  const refunded = await request(`/api/admin/returns/${refundReturnId}/refund`, {
+    method: 'POST',
+    body: { notifyCustomer: false },
+  });
+  assert.equal(refunded.status, 200, JSON.stringify(refunded.data));
+  assert.equal(refunded.data.return.status, 'refunded');
+  assert.equal(refunded.data.order.financial_status, 'partially_refunded');
+  assert.equal(refunded.data.order.refunded_total, 25);
+
+  const afterRefund = await request(`/api/admin/orders/${returnOrder.id}`);
+  assert.equal(afterRefund.data.order.refunded_total, 25);
+  assert.equal(afterRefund.data.order.returnable_items[0].quantity, 1);
+
+  const exchangeRequested = await request(`/api/storefront/account/orders/${returnOrder.number}/returns`, {
+    method: 'POST',
+    useAuth: false,
+    headers: customerHeaders,
+    body: {
+      items: [{ variantId: variant.id, quantity: 1, reason: 'wrong_size' }],
+      resolution: 'exchange',
+      note: 'Please send the next size up',
+    },
+  });
+  assert.equal(exchangeRequested.status, 201, JSON.stringify(exchangeRequested.data));
+  const exchangeId = exchangeRequested.data.return.id;
+
+  await request(`/api/admin/returns/${exchangeId}/receive`, {
+    method: 'POST',
+    body: { restock: true },
+  });
+  const exchanged = await request(`/api/admin/returns/${exchangeId}/exchange`, {
+    method: 'POST',
+    body: {
+      carrier: 'UPS',
+      trackingNumber: 'EXCHANGE-1',
+      trackingUrl: 'https://example.com/track/exchange-1',
+    },
+  });
+  assert.equal(exchanged.status, 200, JSON.stringify(exchanged.data));
+  assert.equal(exchanged.data.return.status, 'exchanged');
+  assert.equal(exchanged.data.return.exchange_tracking_number, 'EXCHANGE-1');
+
+  const productAfterReturns = await request(`/api/admin/products/${product.id}`);
+  assert.equal(productAfterReturns.data.product.variants[0].inventory, 8);
+
+  const accountOrder = await request(`/api/storefront/account/orders/${returnOrder.number}`, {
+    useAuth: false,
+    headers: customerHeaders,
+  });
+  assert.equal(accountOrder.status, 200);
+  assert.equal(accountOrder.data.order.returns.length, 2);
+  assert.equal(accountOrder.data.order.refunded_total, 25);
 });
 
 test('gift card covers the order and marks it paid', async () => {
@@ -1074,6 +1499,97 @@ test('two-factor login requires and accepts a TOTP code', async () => {
     body: { email: 'admin@demo.com', password: 'Admin123!' },
   });
   assert.equal(passwordOnlyAgain.status, 200);
+});
+
+test('shipping zones and regional tax rates price by destination', async () => {
+  const zoneProduct = await request('/api/admin/products', {
+    method: 'POST',
+    body: {
+      title: `Zone Product ${suffix}`,
+      status: 'active',
+      variants: [{ title: 'Default Title', sku: `ZONE-${suffix}`, price: 25, inventory: 50 }],
+    },
+  });
+  assert.equal(zoneProduct.status, 201, JSON.stringify(zoneProduct.data));
+  const zoneVariant = zoneProduct.data.product.variants[0];
+
+  const zones = await request('/api/admin/settings/shipping-zones', {
+    method: 'PUT',
+    body: {
+      zones: [
+        {
+          name: 'United States',
+          countries: ['United States'],
+          regions: [],
+          position: 0,
+          active: true,
+          rates: [{ name: 'Standard', rate: 12, position: 0, active: true }],
+        },
+      ],
+    },
+  });
+  assert.equal(zones.status, 200, JSON.stringify(zones.data));
+  assert.equal(zones.data.zones[0].rates[0].rate, 12);
+
+  const taxRegions = await request('/api/admin/settings/tax-regions', {
+    method: 'PUT',
+    body: {
+      regions: [
+        { name: 'United States', country: 'United States', rate: 8.25, position: 0, active: true },
+        { name: 'Texas', country: 'United States', region: 'TS', rate: 10, position: 1, active: true },
+      ],
+    },
+  });
+  assert.equal(taxRegions.status, 200, JSON.stringify(taxRegions.data));
+  assert.equal(taxRegions.data.regions.length, 2);
+
+  const cart = await request('/api/storefront/cart', {
+    method: 'POST',
+    useAuth: false,
+    body: {
+      items: [{ variantId: zoneVariant.id, quantity: 2 }],
+      shippingAddress: { country: 'United States', region: 'TS', postal_code: '12345' },
+    },
+  });
+  assert.equal(cart.status, 200, JSON.stringify(cart.data));
+  assert.equal(cart.data.cart.shipping_total, 12);
+  assert.equal(cart.data.cart.tax_total, 5);
+  assert.equal(cart.data.cart.total, 67);
+
+  const checkout = await request('/api/storefront/checkout', {
+    method: 'POST',
+    useAuth: false,
+    body: {
+      email: `zones-${suffix}@example.com`,
+      items: [{ variantId: zoneVariant.id, quantity: 2 }],
+      paymentMethod: 'manual',
+      shippingAddress: {
+        first_name: 'Zone',
+        last_name: 'Buyer',
+        address1: '1 Zone Street',
+        city: 'Austin',
+        region: 'TS',
+        postal_code: '78701',
+        country: 'United States',
+      },
+    },
+  });
+  assert.equal(checkout.status, 201, JSON.stringify(checkout.data));
+  assert.equal(checkout.data.order.shipping_total, 12);
+  assert.equal(checkout.data.order.tax_total, 5);
+  assert.equal(checkout.data.order.total, 67);
+
+  const fallback = await request('/api/storefront/cart', {
+    method: 'POST',
+    useAuth: false,
+    body: {
+      items: [{ variantId: zoneVariant.id, quantity: 1 }],
+      shippingAddress: { country: 'Canada', region: 'Ontario', postal_code: 'M5V 2T6' },
+    },
+  });
+  assert.equal(fallback.status, 200, JSON.stringify(fallback.data));
+  assert.equal(fallback.data.cart.shipping_total, 6.95);
+  assert.equal(fallback.data.cart.tax_total, 0);
 });
 
 test('deleting a product removes it from the catalog', async () => {
