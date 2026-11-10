@@ -154,12 +154,53 @@ model Customer {
   tags        String[] @default([])
   totalSpent  Decimal  @default(0)
   ordersCount Int      @default(0)
+  passwordHash          String?
+  emailVerifiedAt       DateTime?
+  verificationCodeHash  String?
+  verificationExpiresAt DateTime?
+  lastLoginAt           DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   orders      Order[]
+  sessions    CustomerSession[]
+  addresses   CustomerAddress[]
 
   @@unique([storeId, email])
   @@index([storeId, createdAt])
+}
+
+model CustomerSession {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  userAgent  String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
+}
+
+model CustomerAddress {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  label      String?
+  firstName  String
+  lastName   String
+  address1   String
+  address2   String?
+  city       String
+  region     String?
+  postalCode String
+  country    String
+  phone      String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([customerId, isDefault])
 }
 
 model Order {
@@ -169,6 +210,7 @@ model Order {
   number           String
   customerId       String?
   customer         Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  fulfillments     Fulfillment[]
   email            String?
   financialStatus  String    @default("pending")
   fulfillmentStatus String   @default("unfulfilled")
@@ -197,6 +239,21 @@ model Order {
   @@unique([storeId, number])
   @@index([storeId, createdAt])
   @@index([storeId, financialStatus])
+}
+
+model Fulfillment {
+  id             String   @id @default(uuid())
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status         String   @default("fulfilled")
+  carrier        String?
+  trackingNumber String?
+  trackingUrl    String?
+  lineItems      Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([orderId])
 }
 
 model Discount {

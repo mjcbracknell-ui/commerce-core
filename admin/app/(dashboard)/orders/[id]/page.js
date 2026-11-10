@@ -9,6 +9,10 @@ export default function OrderDetailPage() {
   const params = useParams();
   const [order, setOrder] = useState(null);
   const [tracking, setTracking] = useState('');
+  const [trackingUrl, setTrackingUrl] = useState('');
+  const [carrier, setCarrier] = useState('');
+  const [quantities, setQuantities] = useState({});
+  const [notifyCustomer, setNotifyCustomer] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -18,6 +22,27 @@ export default function OrderDetailPage() {
       const data = await api(`/api/admin/orders/${params.id}`);
       setOrder(data.order);
       setTracking(data.order.tracking_number || '');
+      setTrackingUrl(data.order.tracking_url || '');
+
+      const shipments = data.order.fulfillments || [];
+      const lastShipment = shipments[shipments.length - 1];
+      setCarrier(lastShipment?.carrier || '');
+
+      const shipped = new Map();
+      for (const shipment of shipments) {
+        for (const item of shipment.line_items || []) {
+          if (!item.variantId) continue;
+          shipped.set(item.variantId, (shipped.get(item.variantId) || 0) + Number(item.quantity || 0));
+        }
+      }
+
+      const nextQuantities = {};
+      for (const item of data.order.line_items || []) {
+        const remaining = Math.max(0, Number(item.quantity || 0) - (shipped.get(item.variantId) || 0));
+        if (item.variantId && remaining > 0) nextQuantities[item.variantId] = remaining;
+      }
+      setQuantities(nextQuantities);
+      setError('');
     } catch (err) {
       setError(err.message);
     }
@@ -42,6 +67,11 @@ export default function OrderDetailPage() {
     }
   };
 
+  const setQuantity = (variantId, max, value) => {
+    const next = Math.max(0, Math.min(max, Math.floor(Number(value) || 0)));
+    setQuantities((current) => ({ ...current, [variantId]: next }));
+  };
+
   if (!order) {
     return (
       <>
@@ -55,6 +85,42 @@ export default function OrderDetailPage() {
 
   const address = order.shipping_address || {};
   const amountPaid = order.financial_status === 'paid' || order.financial_status === 'refunded';
+  const lineItems = order.line_items || [];
+  const shipments = order.fulfillments || [];
+  const shippedByVariant = {};
+  for (const shipment of shipments) {
+    for (const item of shipment.line_items || []) {
+      if (!item.variantId) continue;
+      shippedByVariant[item.variantId] =
+        (shippedByVariant[item.variantId] || 0) + Number(item.quantity || 0);
+    }
+  }
+  const remainingFor = (item) =>
+    item.variantId ? Math.max(0, Number(item.quantity || 0) - (shippedByVariant[item.variantId] || 0)) : 0;
+  const totalRemaining = lineItems.reduce((sum, item) => sum + remainingFor(item), 0);
+  const selectedCount = Object.values(quantities).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
+
+  const createShipment = () => {
+    const items = Object.entries(quantities)
+      .map(([variantId, quantity]) => ({ variantId, quantity: Number(quantity) || 0 }))
+      .filter((item) => item.quantity > 0);
+    if (!items.length) {
+      setError('Choose at least one item to ship.');
+      return;
+    }
+    run('Shipment created.', () =>
+      api(`/api/admin/orders/${order.id}/fulfill`, {
+        method: 'POST',
+        body: {
+          items,
+          ...(tracking ? { trackingNumber: tracking } : {}),
+          ...(trackingUrl ? { trackingUrl } : {}),
+          ...(carrier ? { carrier } : {}),
+          notifyCustomer,
+        },
+      }),
+    );
+  };
 
   return (
     <>
@@ -82,32 +148,60 @@ export default function OrderDetailPage() {
               <h2 style={{ margin: 0 }}>Items</h2>
               <div>
                 <span className={`badge ${order.financial_status}`}>{order.financial_status.replace('_', ' ')}</span>{' '}
-                <span className={`badge ${order.fulfillment_status}`}>{order.fulfillment_status}</span>
+                <span className={`badge ${order.fulfillment_status}`}>
+                  {order.fulfillment_status.replace('_', ' ')}
+                </span>
               </div>
             </div>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th>SKU</th>
-                  <th>Qty</th>
-                  <th style={{ textAlign: 'right' }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {order.line_items.map((item) => (
-                  <tr key={item.variantId}>
-                    <td>
-                      {item.title}
-                      <div className="muted small">{item.variantTitle}</div>
-                    </td>
-                    <td className="muted">{item.sku || '—'}</td>
-                    <td>{item.quantity}</td>
-                    <td style={{ textAlign: 'right' }}>{formatMoney(item.price * item.quantity, order.currency)}</td>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>SKU</th>
+                    <th>Qty</th>
+                    <th>Shipped</th>
+                    <th>To ship</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {lineItems.map((item, index) => {
+                    const remaining = remainingFor(item);
+                    const shipped = Number(item.quantity || 0) - remaining;
+                    return (
+                      <tr key={item.variantId || index}>
+                        <td>
+                          {item.title}
+                          <div className="muted small">{item.variantTitle}</div>
+                        </td>
+                        <td className="muted">{item.sku || '—'}</td>
+                        <td>{item.quantity}</td>
+                        <td>{shipped}</td>
+                        <td>
+                          {item.variantId && remaining > 0 ? (
+                            <input
+                              type="number"
+                              min="0"
+                              max={remaining}
+                              value={quantities[item.variantId] ?? 0}
+                              onChange={(event) => setQuantity(item.variantId, remaining, event.target.value)}
+                              aria-label={`Quantity of ${item.title} to ship`}
+                              style={{ width: 82 }}
+                            />
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          {formatMoney(item.price * item.quantity, order.currency)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
             <div style={{ maxWidth: 320, marginLeft: 'auto', marginTop: 16 }}>
               <div className="summary-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
@@ -141,42 +235,106 @@ export default function OrderDetailPage() {
           <div className="card">
             <h2>Notes</h2>
             {order.notes ? <p>{order.notes}</p> : <p className="muted">No notes from the customer.</p>}
-            {order.tracking_number ? (
-              <p>
-                Tracking number: <strong>{order.tracking_number}</strong>
-              </p>
-            ) : null}
           </div>
         </div>
 
         <div>
           <div className="card">
             <h2>Fulfilment</h2>
-            <div className="field">
-              <label htmlFor="tracking">Tracking number</label>
-              <input
-                id="tracking"
-                value={tracking}
-                onChange={(event) => setTracking(event.target.value)}
-                placeholder="1Z999AA10123456784"
-              />
-            </div>
-            <button
-              className="btn"
-              type="button"
-              disabled={busy || order.fulfillment_status === 'fulfilled'}
-              style={{ width: '100%' }}
-              onClick={() =>
-                run('Order marked as fulfilled.', () =>
-                  api(`/api/admin/orders/${order.id}/fulfill`, {
-                    method: 'POST',
-                    body: { trackingNumber: tracking || undefined, notifyCustomer: true },
-                  }),
-                )
-              }
-            >
-              {order.fulfillment_status === 'fulfilled' ? 'Fulfilled' : 'Mark fulfilled'}
-            </button>
+            {totalRemaining === 0 ? (
+              <p className="muted small">All items have been fulfilled.</p>
+            ) : (
+              <>
+                <p className="muted small">Choose quantities to create a shipment. Leave a quantity unchanged to ship all remaining items.</p>
+                <div className="field">
+                  <label htmlFor="carrier">Carrier</label>
+                  <input
+                    id="carrier"
+                    value={carrier}
+                    onChange={(event) => setCarrier(event.target.value)}
+                    placeholder="UPS, FedEx, Royal Mail…"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="tracking">Tracking number</label>
+                  <input
+                    id="tracking"
+                    value={tracking}
+                    onChange={(event) => setTracking(event.target.value)}
+                    placeholder="1Z999AA10123456784"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="trackingUrl">Tracking URL</label>
+                  <input
+                    id="trackingUrl"
+                    type="url"
+                    value={trackingUrl}
+                    onChange={(event) => setTrackingUrl(event.target.value)}
+                    placeholder="https://carrier.example/track/…"
+                  />
+                </div>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, fontSize: '0.85rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={notifyCustomer}
+                    onChange={(event) => setNotifyCustomer(event.target.checked)}
+                    style={{ width: 'auto' }}
+                  />
+                  Email the customer about this shipment
+                </label>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={busy || selectedCount === 0}
+                  style={{ width: '100%' }}
+                  onClick={createShipment}
+                >
+                  {busy ? 'Creating shipment…' : `Ship ${selectedCount} item${selectedCount === 1 ? '' : 's'}`}
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="card">
+            <h2>Shipments</h2>
+            {shipments.length ? (
+              shipments.map((shipment, index) => (
+                <div className="shipment" key={shipment.id}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                    <strong>Shipment {index + 1}</strong>
+                    <span className={`badge ${shipment.status}`}>{shipment.status}</span>
+                  </div>
+                  <p className="muted small" style={{ margin: '4px 0' }}>
+                    {formatDate(shipment.created_at, true)}
+                    {shipment.carrier ? ` · ${shipment.carrier}` : ''}
+                  </p>
+                  <p style={{ margin: '6px 0' }}>
+                    {(shipment.line_items || [])
+                      .map((item) => `${item.title} × ${item.quantity}`)
+                      .join(', ')}
+                  </p>
+                  {shipment.tracking_number ? (
+                    <p className="small" style={{ margin: '4px 0' }}>
+                      Tracking: <strong>{shipment.tracking_number}</strong>
+                    </p>
+                  ) : null}
+                  {shipment.tracking_url ? (
+                    <a
+                      href={shipment.tracking_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="small"
+                      style={{ textDecoration: 'underline' }}
+                    >
+                      Track shipment ↗
+                    </a>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <p className="muted small">No shipments yet.</p>
+            )}
           </div>
 
           <div className="card">

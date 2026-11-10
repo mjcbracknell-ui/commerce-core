@@ -29,6 +29,7 @@ import appRoutes from './routes/apps.js';
 import analyticsRoutes from './routes/analytics.js';
 import settingsRoutes from './routes/settings.js';
 import storefrontRoutes from './routes/storefront.js';
+import customerAccountRoutes from './routes/customer-account.js';
 import licenseRoutes from './routes/license.js';
 
 const app = express();
@@ -121,6 +122,7 @@ admin.use('/analytics', analyticsRoutes);
 admin.use('/settings', settingsRoutes);
 app.use('/api/admin', admin);
 
+app.use('/api/storefront/account', customerAccountRoutes);
 app.use('/api/storefront', checkoutLimiter, storefrontRoutes);
 app.use('/api/license', licenseRoutes);
 

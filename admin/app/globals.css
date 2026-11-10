@@ -389,9 +389,20 @@ textarea:focus {
 
 .badge.pending,
 .badge.draft,
-.badge.unfulfilled {
+.badge.unfulfilled,
+.badge.partially_fulfilled {
   background: var(--amber-soft);
   color: var(--amber);
+}
+
+.shipment {
+  border-top: 1px solid var(--line);
+  padding: 14px 0;
+}
+
+.shipment:first-of-type {
+  border-top: 0;
+  padding-top: 0;
 }
 
 .badge.refunded,

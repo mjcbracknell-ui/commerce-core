@@ -66,7 +66,56 @@ export function serializeCustomer(customer) {
   };
 }
 
+export function serializeFulfillment(fulfillment) {
+  return {
+    id: fulfillment.id,
+    status: fulfillment.status,
+    carrier: fulfillment.carrier,
+    tracking_number: fulfillment.trackingNumber,
+    tracking_url: fulfillment.trackingUrl,
+    line_items: fulfillment.lineItems || [],
+    created_at: fulfillment.createdAt,
+  };
+}
+
+export function serializeAddress(address) {
+  return {
+    id: address.id,
+    label: address.label,
+    first_name: address.firstName,
+    last_name: address.lastName,
+    name: [address.firstName, address.lastName].filter(Boolean).join(' '),
+    address1: address.address1,
+    address2: address.address2,
+    city: address.city,
+    region: address.region,
+    postal_code: address.postalCode,
+    country: address.country,
+    phone: address.phone,
+    is_default: address.isDefault,
+    created_at: address.createdAt,
+  };
+}
+
+export function serializeCustomerAccount(customer) {
+  return {
+    id: customer.id,
+    email: customer.email,
+    first_name: customer.firstName,
+    last_name: customer.lastName,
+    name: [customer.firstName, customer.lastName].filter(Boolean).join(' ') || customer.email,
+    phone: customer.phone,
+    email_verified: Boolean(customer.emailVerifiedAt),
+    orders_count: customer.ordersCount,
+    total_spent: moneyValue(customer.totalSpent),
+    created_at: customer.createdAt,
+    addresses: (customer.addresses || []).map(serializeAddress),
+  };
+}
+
 export function serializeOrder(order, { includeCustomer = true } = {}) {
+  const fulfillments = (order.fulfillments || []).map(serializeFulfillment);
+  const latestFulfillment = fulfillments[fulfillments.length - 1];
   return {
     id: order.id,
     number: order.number,
@@ -87,6 +136,8 @@ export function serializeOrder(order, { includeCustomer = true } = {}) {
     gift_card_code: order.giftCardCode,
     payment_method: order.paymentMethod,
     tracking_number: order.trackingNumber,
+    tracking_url: latestFulfillment?.tracking_url || null,
+    fulfillments,
     notes: order.notes,
     paid_at: order.paidAt,
     fulfilled_at: order.fulfilledAt,

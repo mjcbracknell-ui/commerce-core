@@ -397,7 +397,10 @@ router.get(
     if (!email) throw badRequest('Email is required to look up an order');
     const order = await prisma.order.findFirst({
       where: { storeId: req.storeId, number: req.params.number, email },
-      include: { customer: true },
+      include: {
+        customer: true,
+        fulfillments: { orderBy: { createdAt: 'asc' } },
+      },
     });
     if (!order) throw notFound('Order not found');
     return res.json({ order: serializeOrder(order) });

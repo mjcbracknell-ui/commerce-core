@@ -25,6 +25,7 @@ export default function Header({ storeName = 'Commerce Core' }) {
           <Link href="/search" aria-label="Search">
             Search
           </Link>
+          <Link href="/account">Account</Link>
           <Link href="/cart" className="cart-link">
             Cart {mounted && count > 0 ? <span className="cart-badge">{count}</span> : null}
           </Link>

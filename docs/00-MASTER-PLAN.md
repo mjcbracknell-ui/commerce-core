@@ -18,7 +18,7 @@ License: RSA-2048 sign/verify, offline + online heartbeat
 
 ## Phases
 1. Auth + Stores + Products — DONE (JWT/refresh, 2FA, store scoping, variants, CSV/Shopify import)
-2. Cart + Checkout + Orders + Discounts + Gift Cards — DONE (server-side pricing, stock guards, refunds, fulfilment, gift cards)
+2. Cart + Checkout + Orders + Discounts + Gift Cards — DONE (server-side pricing, stock guards, refunds, partial and multi-shipment fulfilment with carrier tracking, gift cards)
 3. Themes + Liquid + Storefront — DONE (ZIP upload, sections/snippets, preview, bundled Dawn clone)
 4. Apps + Webhooks + API Keys — DONE (integration catalog, signed webhooks with delivery logs, storefront API keys)
 5. Email + POS + Multi-vendor + Marketplace — Email DONE (SMTP order/fulfilment/refund mail). POS, multi-vendor and marketplace are not included.

@@ -49,9 +49,38 @@ export default async function OrderPage({ params, searchParams }) {
         </p>
         <div className="order-status">
           <span className={`pill ${order.financial_status}`}>{order.financial_status.replace('_', ' ')}</span>
-          <span className="pill">{order.fulfillment_status}</span>
+          <span className={`pill ${order.fulfillment_status}`}>{order.fulfillment_status.replace('_', ' ')}</span>
           <span className="pill">{order.payment_method}</span>
         </div>
+
+        {order.fulfillments?.length ? (
+          <div style={{ margin: '0 0 24px' }}>
+            <h2 style={{ fontSize: '1.4rem' }}>Shipments</h2>
+            {order.fulfillments.map((shipment, index) => (
+              <div key={shipment.id} style={{ borderTop: '1px solid var(--line)', padding: '14px 0' }}>
+                <p style={{ margin: '0 0 4px' }}>
+                  <strong>Shipment {index + 1}</strong> <span className="pill">{shipment.status}</span>
+                </p>
+                <p className="product-meta">
+                  {(shipment.line_items || [])
+                    .map((item) => `${item.title} × ${item.quantity}`)
+                    .join(', ')}
+                </p>
+                {shipment.carrier ? <p className="product-meta">{shipment.carrier}</p> : null}
+                {shipment.tracking_number ? (
+                  <p style={{ margin: '6px 0' }}>
+                    Tracking: <strong>{shipment.tracking_number}</strong>
+                  </p>
+                ) : null}
+                {shipment.tracking_url ? (
+                  <a className="link-arrow" href={shipment.tracking_url} target="_blank" rel="noreferrer">
+                    Track shipment ↗
+                  </a>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         <table className="table">
           <thead>
@@ -100,7 +129,7 @@ export default async function OrderPage({ params, searchParams }) {
           </div>
         </div>
 
-        {order.tracking_number ? (
+        {order.tracking_number && !order.fulfillments?.length ? (
           <p style={{ marginTop: 20 }}>
             Tracking number: <strong>{order.tracking_number}</strong>
           </p>

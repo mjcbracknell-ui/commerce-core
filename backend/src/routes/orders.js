@@ -4,14 +4,51 @@ import prisma from '../db.js';
 import { asyncHandler, badRequest, notFound, parseIntParam } from '../lib/http.js';
 import { validateBody } from '../middleware/validate.js';
 import { requireRole } from '../middleware/auth.js';
-import { serializeOrder } from '../lib/serializers.js';
+import { serializeFulfillment, serializeOrder } from '../lib/serializers.js';
 import { placeOrder, markOrderPaid } from '../services/orders.js';
 import { dispatchEventLater } from '../lib/webhooks.js';
 import { sendOrderFulfilled, sendOrderRefunded } from '../lib/mailer.js';
 
 const router = express.Router();
 
-const orderInclude = { customer: true };
+const orderInclude = {
+  customer: true,
+  fulfillments: { orderBy: { createdAt: 'asc' } },
+};
+
+const lineItemVariantId = (item) => item?.variantId || item?.variant_id || null;
+
+function remainingItems(order) {
+  const shipped = new Map();
+  for (const fulfillment of order.fulfillments || []) {
+    for (const item of fulfillment.lineItems || []) {
+      const variantId = lineItemVariantId(item);
+      if (!variantId) continue;
+      shipped.set(variantId, (shipped.get(variantId) || 0) + Number(item.quantity || 0));
+    }
+  }
+
+  return (order.lineItems || [])
+    .map((item) => {
+      const variantId = lineItemVariantId(item);
+      return {
+        ...item,
+        variantId,
+        remaining: Number(item.quantity || 0) - (shipped.get(variantId) || 0),
+      };
+    })
+    .filter((item) => item.variantId && item.remaining > 0);
+}
+
+const totalItemQuantity = (order) =>
+  (order.lineItems || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+
+const fulfilledItemQuantity = (fulfillments = []) =>
+  fulfillments.reduce(
+    (sum, fulfillment) =>
+      sum + (fulfillment.lineItems || []).reduce((lineSum, item) => lineSum + Number(item.quantity || 0), 0),
+    0,
+  );
 
 router.get(
   '/',
@@ -71,6 +108,17 @@ router.get(
 
 const fulfillSchema = z.object({
   trackingNumber: z.string().trim().max(200).optional(),
+  trackingUrl: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((value) => !value || /^https?:\/\//i.test(value), 'Tracking URL must start with http:// or https://')
+    .optional(),
+  carrier: z.string().trim().max(120).optional(),
+  items: z
+    .array(z.object({ variantId: z.string().min(1), quantity: z.coerce.number().int().positive() }))
+    .min(1)
+    .optional(),
   notifyCustomer: z.boolean().default(true),
 });
 
@@ -79,22 +127,80 @@ router.post(
   requireRole('owner', 'admin'),
   validateBody(fulfillSchema),
   asyncHandler(async (req, res) => {
-    const existing = await prisma.order.findFirst({ where: { id: req.params.id, storeId: req.storeId } });
-    if (!existing) throw notFound('Order not found');
-    if (existing.fulfillmentStatus === 'fulfilled') throw badRequest('Order is already fulfilled');
-
-    const order = await prisma.order.update({
-      where: { id: existing.id },
-      data: {
-        fulfillmentStatus: 'fulfilled',
-        fulfilledAt: new Date(),
-        ...(req.body.trackingNumber ? { trackingNumber: req.body.trackingNumber } : {}),
-      },
+    const existing = await prisma.order.findFirst({
+      where: { id: req.params.id, storeId: req.storeId },
       include: orderInclude,
     });
-    dispatchEventLater(req.storeId, 'orders/fulfilled', serializeOrder(order));
-    if (req.body.notifyCustomer) sendOrderFulfilled(order, req.store).catch(() => {});
-    return res.json({ order: serializeOrder(order) });
+    if (!existing) throw notFound('Order not found');
+    if (existing.canceledAt) throw badRequest('A canceled order cannot be fulfilled');
+
+    const remaining = remainingItems(existing);
+    if (!remaining.length) throw badRequest('Order has no remaining items to fulfill');
+
+    const remainingByVariant = new Map(remaining.map((item) => [item.variantId, item]));
+    const requestedByVariant = new Map();
+    if (req.body.items?.length) {
+      for (const item of req.body.items) {
+        requestedByVariant.set(item.variantId, (requestedByVariant.get(item.variantId) || 0) + item.quantity);
+      }
+    } else {
+      for (const item of remaining) requestedByVariant.set(item.variantId, item.remaining);
+    }
+
+    const shipmentLines = [];
+    let shipmentQuantity = 0;
+    for (const [variantId, quantity] of requestedByVariant) {
+      const item = remainingByVariant.get(variantId);
+      if (!item) throw badRequest('One or more items are not available to fulfill');
+      if (quantity > item.remaining) {
+        throw badRequest(`Only ${item.remaining} of ${item.title} remain to be fulfilled`);
+      }
+      shipmentLines.push({
+        variantId,
+        title: item.title,
+        variantTitle: item.variantTitle,
+        sku: item.sku,
+        quantity,
+      });
+      shipmentQuantity += quantity;
+    }
+
+    if (!shipmentQuantity) throw badRequest('Select at least one item to fulfill');
+
+    const trackingNumber = req.body.trackingNumber || null;
+    const trackingUrl = req.body.trackingUrl || null;
+    const carrier = req.body.carrier || null;
+    const result = await prisma.$transaction(async (tx) => {
+      const fulfillment = await tx.fulfillment.create({
+        data: {
+          orderId: existing.id,
+          carrier,
+          trackingNumber,
+          trackingUrl,
+          lineItems: shipmentLines,
+        },
+      });
+      const fulfillmentStatus =
+        fulfilledItemQuantity(existing.fulfillments) + shipmentQuantity >= totalItemQuantity(existing)
+          ? 'fulfilled'
+          : 'partially_fulfilled';
+      const order = await tx.order.update({
+        where: { id: existing.id },
+        data: {
+          fulfillmentStatus,
+          ...(fulfillmentStatus === 'fulfilled' ? { fulfilledAt: new Date() } : {}),
+          ...(trackingNumber ? { trackingNumber } : {}),
+        },
+        include: orderInclude,
+      });
+      return { order, fulfillment };
+    });
+
+    dispatchEventLater(req.storeId, 'orders/fulfilled', serializeOrder(result.order));
+    if (req.body.notifyCustomer) {
+      sendOrderFulfilled(result.order, req.store, result.fulfillment).catch(() => {});
+    }
+    return res.json({ order: serializeOrder(result.order), fulfillment: serializeFulfillment(result.fulfillment) });
   }),
 );
 
