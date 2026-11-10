@@ -11,7 +11,7 @@ export async function generateMetadata({ params }) {
   const data = await getProduct(params.handle);
   if (!data?.product) return { title: 'Product not found' };
   return {
-    title: data.product.seo_title || `${data.product.title} — CommerceCore`,
+    title: data.product.seo_title || `${data.product.title} — Commerce Core`,
     description: data.product.seo_description || data.product.description_html?.replace(/<[^>]+>/g, '').slice(0, 150),
   };
 }

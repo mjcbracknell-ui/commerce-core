@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '../../components/Sidebar';
-import { api } from '../../lib/api';
+import { api, getActiveStoreId, setActiveStoreId } from '../../lib/api';
 
 export default function DashboardLayout({ children }) {
   const router = useRouter();
@@ -13,7 +13,10 @@ export default function DashboardLayout({ children }) {
   useEffect(() => {
     api('/api/auth/me')
       .then((data) => {
-        setSession(data);
+        const stores = data.stores || [];
+        const activeStore = stores.find((store) => store.id === getActiveStoreId()) || stores[0] || null;
+        if (activeStore) setActiveStoreId(activeStore.id);
+        setSession({ ...data, stores, activeStore });
         setLoading(false);
       })
       .catch(() => {
@@ -24,16 +27,14 @@ export default function DashboardLayout({ children }) {
   if (loading) {
     return (
       <div className="auth-wrap">
-        <p className="muted">Loading your store…</p>
+        <p className="muted">Loading your storefronts…</p>
       </div>
     );
   }
 
-  const store = session?.stores?.[0];
-
   return (
     <div className="shell">
-      <Sidebar store={store} user={session?.user} />
+      <Sidebar store={session?.activeStore} stores={session?.stores} user={session?.user} />
       <main className="main">{children}</main>
     </div>
   );

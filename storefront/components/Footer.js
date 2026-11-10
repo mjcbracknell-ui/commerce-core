@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-export default function Footer({ storeName = 'CommerceCore', currency = 'USD' }) {
+export default function Footer({ storeName = 'Commerce Core', currency = 'USD' }) {
   return (
     <footer className="site-footer">
       <div className="container">
@@ -10,7 +10,7 @@ export default function Footer({ storeName = 'CommerceCore', currency = 'USD' })
               {storeName}
             </strong>
             <p style={{ marginTop: 12, maxWidth: '36ch' }}>
-              Considered essentials, made to last. This storefront runs on CommerceCore — buy once, own it forever.
+              Considered essentials, made to last. This storefront runs on Commerce Core — buy once, own it forever.
             </p>
           </div>
           <div>
@@ -30,7 +30,7 @@ export default function Footer({ storeName = 'CommerceCore', currency = 'USD' })
           <span>
             © {new Date().getFullYear()} {storeName}. All prices in {currency}.
           </span>
-          <span>Powered by CommerceCore — perpetual license, no platform fees.</span>
+          <span>Powered by Commerce Core — perpetual license, no platform fees.</span>
         </div>
       </div>
     </footer>

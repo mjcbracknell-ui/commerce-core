@@ -44,7 +44,7 @@ const wrapper = (title, body) => `<!doctype html>
   <div style="max-width:560px;margin:0 auto;padding:32px 20px">
     <h2 style="margin:0 0 16px">${title}</h2>
     <div style="background:#fff;border-radius:12px;padding:24px;border:1px solid #e6e8ec">${body}</div>
-    <p style="color:#888;font-size:12px;margin-top:20px">Sent by CommerceCore</p>
+    <p style="color:#888;font-size:12px;margin-top:20px">Sent by Commerce Core</p>
   </div>
 </body></html>`;
 
@@ -59,7 +59,7 @@ export async function sendOrderConfirmation(order, store) {
     .join('');
   return send({
     to: order.email,
-    subject: `Order ${order.number} confirmed - ${store?.name || 'CommerceCore'}`,
+    subject: `Order ${order.number} confirmed - ${store?.name || 'Commerce Core'}`,
     html: wrapper(
       `Thanks, your order ${order.number} is confirmed`,
       `<table width="100%" style="border-collapse:collapse">${items}
@@ -75,7 +75,7 @@ export async function sendOrderFulfilled(order, store) {
   if (!order.email) return { sent: false, reason: 'no_email' };
   return send({
     to: order.email,
-    subject: `Order ${order.number} shipped - ${store?.name || 'CommerceCore'}`,
+    subject: `Order ${order.number} shipped - ${store?.name || 'Commerce Core'}`,
     html: wrapper(
       `Order ${order.number} is on its way`,
       `<p>Your order has been fulfilled.</p>${
@@ -89,11 +89,11 @@ export async function sendOrderRefunded(order, store) {
   if (!order.email) return { sent: false, reason: 'no_email' };
   return send({
     to: order.email,
-    subject: `Refund issued for order ${order.number} - ${store?.name || 'CommerceCore'}`,
+    subject: `Refund issued for order ${order.number} - ${store?.name || 'Commerce Core'}`,
     html: wrapper(`Refund issued`, `<p>We have refunded order ${order.number}.</p>`),
   });
 }
 
 export async function sendTestEmail(to) {
-  return send({ to, subject: 'CommerceCore SMTP test', html: wrapper('SMTP works', '<p>Your mail settings are correct.</p>') });
+  return send({ to, subject: 'Commerce Core SMTP test', html: wrapper('SMTP works', '<p>Your mail settings are correct.</p>') });
 }

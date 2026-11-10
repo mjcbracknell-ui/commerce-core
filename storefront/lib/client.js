@@ -1,4 +1,6 @@
-export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/$/, '');
+// Browser requests stay same-origin: the /api proxy adds the tenant host before
+// forwarding to the API, so every storefront talks to its own store.
+export const API_BASE = '';
 
 export async function apiFetch(path, { method = 'GET', body, headers = {} } = {}) {
   const response = await fetch(`${API_BASE}${path}`, {

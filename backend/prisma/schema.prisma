@@ -312,3 +312,11 @@ model AuditLog {
 
   @@index([storeId, createdAt])
 }
+
+model ProcessedStripeEvent {
+  id        String   @id
+  type      String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

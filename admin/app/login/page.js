@@ -43,7 +43,7 @@ export default function LoginPage() {
   return (
     <div className="auth-wrap">
       <form className="auth-card" onSubmit={submit}>
-        <div className="logo">CommerceCore</div>
+        <div className="logo">Commerce Core</div>
         <div className="sub">Sign in to your store admin</div>
 
         {error ? <div className="notice error">{error}</div> : null}
@@ -84,6 +84,9 @@ export default function LoginPage() {
         </button>
         <p className="muted small" style={{ marginTop: 18, marginBottom: 0 }}>
           Demo credentials: admin@demo.com / Admin123!
+        </p>
+        <p className="muted small" style={{ marginTop: 10, marginBottom: 0 }}>
+          New here? <a href="/register" style={{ textDecoration: 'underline' }}>Create your storefront</a>
         </p>
       </form>
     </div>

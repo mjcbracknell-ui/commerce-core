@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config.js';
 import prisma from '../db.js';
 import { accessCookie } from '../lib/tokens.js';
+import { normalizeStoreDomain, storeDomainForSlug } from '../lib/storefront-url.js';
 
 export function signAccessToken(user) {
   return jwt.sign(
@@ -79,19 +80,33 @@ export async function resolvePublicStore(req, res, next) {
       prisma.apiKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
     }
 
+    const explicitDomain = req.headers['x-store-domain'] || req.headers['x-store-slug'];
+    if (!store && explicitDomain) {
+      const wanted = normalizeStoreDomain(explicitDomain);
+      store = await prisma.store.findFirst({
+        where: {
+          OR: [
+            { domain: { equals: wanted, mode: 'insensitive' } },
+            { domain: { equals: storeDomainForSlug(wanted), mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (!store) return res.status(404).json({ error: 'Store not found' });
+    }
+
     if (!store) {
       const storeId = req.headers['x-store-id'];
       if (storeId) store = await prisma.store.findUnique({ where: { id: String(storeId) } });
     }
 
     if (!store) {
-      const rawDomain = String(req.headers['x-store-domain'] || req.hostname || '').toLowerCase();
-      const domain = rawDomain.replace(/^www\./, '').replace(/:\d+$/, '');
+      const domain = normalizeStoreDomain(req.hostname || '');
       if (domain) {
         store = await prisma.store.findFirst({ where: { domain: { equals: domain, mode: 'insensitive' } } });
       }
     }
 
+    // Fallback keeps single-store installs and direct API calls working.
     if (!store) store = await prisma.store.findFirst({ orderBy: { createdAt: 'asc' } });
     if (!store) return res.status(404).json({ error: 'No store configured. Run the seed script.' });
 

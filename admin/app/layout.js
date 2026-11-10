@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'CommerceCore Admin',
+  title: 'Commerce Core Admin',
   description: 'Manage products, orders, customers and themes.',
 };
 

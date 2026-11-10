@@ -12,6 +12,8 @@ import { loadBundledTheme, renderTheme } from './lib/theme.js';
 import { serializeProduct } from './lib/serializers.js';
 import { storeSettings } from './lib/pricing.js';
 import { stripeWebhookHandler } from './routes/stripe-webhook.js';
+import { normalizeStoreDomain } from './lib/storefront-url.js';
+import { scheduleProcessedStripeEventCleanup } from './services/stripe-events.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
@@ -94,7 +96,7 @@ if (!config.isProd) {
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
-    product: 'CommerceCore',
+    product: 'Commerce Core',
     version: '1.0.0',
     license: 'perpetual',
     uptime: Math.round(process.uptime()),
@@ -124,12 +126,15 @@ app.use('/api/license', licenseRoutes);
 
 /** Render the active Liquid theme (the backend can serve the store directly). */
 async function renderStorefront(req, res) {
-  const store = await prisma.store.findFirst({ orderBy: { createdAt: 'asc' } });
+  const requestedDomain = normalizeStoreDomain(req.headers['x-store-domain'] || req.hostname || '');
+  const store = requestedDomain
+    ? await prisma.store.findFirst({ where: { domain: { equals: requestedDomain, mode: 'insensitive' } } })
+    : await prisma.store.findFirst({ orderBy: { createdAt: 'asc' } });
   if (!store) {
     return res
-      .status(200)
+      .status(404)
       .type('html')
-      .send('<!doctype html><h1>CommerceCore is running</h1><p>Run <code>npm run seed</code> to create a demo store.</p>');
+      .send('<!doctype html><h1>Store not found</h1><p>No storefront is configured for this domain.</p>');
   }
 
   const theme = await prisma.theme.findFirst({ where: { storeId: store.id, isActive: true } });
@@ -164,14 +169,16 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 const server = app.listen(config.port, () => {
-  console.log(`CommerceCore backend listening on :${config.port} (${config.env})`);
+  console.log(`Commerce Core backend listening on :${config.port} (${config.env})`);
   console.log(
     `License: ${config.license.publicKey ? 'RSA verification enabled' : config.license.allowDemo ? 'demo key only' : 'not configured'}`,
   );
 });
+const retentionTimer = scheduleProcessedStripeEventCleanup();
 
 async function shutdown(signal) {
   console.log(`\n${signal} received, shutting down`);
+  clearInterval(retentionTimer);
   server.close(async () => {
     await prisma.$disconnect().catch(() => {});
     process.exit(0);

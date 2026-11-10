@@ -1,6 +1,6 @@
 # Migration from Shopify
 
-CommerceCore accepts Shopify product JSON and the standard Shopify product CSV. The importer signs into your own admin API, so it works the same locally or on a server.
+Commerce Core accepts Shopify product JSON and the standard Shopify product CSV. The importer signs into your own admin API, so it works the same locally or on a server.
 
 ## Admin API import
 

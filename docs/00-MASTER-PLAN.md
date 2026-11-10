@@ -1,7 +1,7 @@
 # MASTER PLAN - Everything Needed
 
 ## Business Model
-You sell CommerceCore ONCE. Customer gets Docker image + license key + updates for 12 months (optional renewal for updates only, NOT required to keep running).
+You sell Commerce Core ONCE. Customer gets Docker image + license key + updates for 12 months (optional renewal for updates only, NOT required to keep running).
 Price tiers: Single Store $299, Unlimited Stores $899, Agency $1499.
 Revenue also: Theme Store (30% cut), App Store (20% cut), Priority Support $49/mo optional.
 

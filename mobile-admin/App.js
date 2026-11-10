@@ -93,7 +93,7 @@ export default function App() {
   if (!token) {
     return (
       <View style={styles.loginWrap}>
-        <Text style={styles.brand}>CommerceCore</Text>
+        <Text style={styles.brand}>Commerce Core</Text>
         <Text style={styles.sub}>Store admin</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <TextInput

@@ -12,7 +12,7 @@ export default async function CollectionsPage() {
       <p className="eyebrow">Browse</p>
       <h1>Collections</h1>
       <p style={{ color: 'var(--muted)', maxWidth: '52ch' }}>
-        Groupings of pieces that work together. Every collection is managed from the CommerceCore admin.
+        Groupings of pieces that work together. Every collection is managed from the Commerce Core admin.
       </p>
 
       {collections.length ? (

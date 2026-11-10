@@ -26,6 +26,8 @@ export const config = {
     .filter(Boolean),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
   adminUrl: process.env.ADMIN_URL || 'http://localhost:3001',
+  platformDomain: (process.env.PLATFORM_DOMAIN || 'localhost').toLowerCase().replace(/^\.+|\.+$/g, ''),
+  storefrontPort: num(process.env.STOREFRONT_PORT, 3000),
   cookieDomain: process.env.COOKIE_DOMAIN || undefined,
   secureCookies: bool(process.env.SECURE_COOKIES, isProd),
 
@@ -37,7 +39,7 @@ export const config = {
     port: num(process.env.SMTP_PORT, 1025),
     user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || '',
-    from: process.env.SMTP_FROM || 'CommerceCore <no-reply@commercecore.local>',
+    from: process.env.SMTP_FROM || 'Commerce Core <no-reply@commercecore.local>',
   },
 
   meili: {
