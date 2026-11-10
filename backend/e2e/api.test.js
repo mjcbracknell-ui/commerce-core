@@ -550,6 +550,11 @@ test('customer password reset, email change and session control', async () => {
   });
   assert.equal(revoked.status, 200);
   assert.ok(revoked.data.revoked >= 1, 'other sessions should be revoked');
+  const revokedAccess = await request('/api/storefront/account', {
+    useAuth: false,
+    headers: firstHeaders,
+  });
+  assert.equal(revokedAccess.status, 401, 'a revoked session must reject its existing access token');
   const remaining = await request('/api/storefront/account/sessions', {
     useAuth: false,
     headers: secondHeaders,

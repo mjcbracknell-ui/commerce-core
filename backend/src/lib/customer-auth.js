@@ -151,6 +151,15 @@ export async function authenticateCustomer(req, res, next) {
       throw unauthorized('Your session is no longer valid. Please sign in again.');
     }
 
+    if (decoded.sid) {
+      const session = await prisma.customerSession.findFirst({
+        where: { id: decoded.sid, customerId: customer.id },
+      });
+      if (!session || session.revokedAt || session.expiresAt < new Date()) {
+        throw unauthorized('Your session is no longer valid. Please sign in again.');
+      }
+    }
+
     req.customer = customer;
     req.customerSessionId = decoded.sid || null;
     return next();
