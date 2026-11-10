@@ -106,13 +106,16 @@ Themes: **Admin → Themes → Upload theme ZIP**. Theme archives must contain `
 ```bash
 npm test          # unit tests
 npm run test:e2e  # HTTP API against a disposable Postgres
+npm run test:ui   # Playwright customer account and return flows
 ```
 
 Unit tests cover cart pricing/tax/discounts/gift cards, RSA license sign/verify (domain binding, tampering, expiry, wildcards), CSV parsing/Shopify mapping, Liquid theme rendering, and slugs/domain normalisation.
 
 The e2e suite provisions a throwaway Postgres 16 cluster with `embedded-postgres` (no Docker or system Postgres needed), applies the Prisma migrations, runs the seed, boots the real API on a random port, and exercises seed data, login and refresh-token rotation, two-factor login, self-serve store creation with per-tenant catalog isolation and unknown-host 404s, product/collection/customer/discount CRUD, Shopify Admin API product and customer imports plus an idempotent importer re-run, paginated importer responses via `Link` headers, server-side cart pricing, checkout and inventory decrement, order lookup, admin fulfil/refund, gift cards, Stripe webhook signature verification, checkout and payment-intent events, duplicate delivery, event-id deduplication before payment, payment capture, and Shopify CSV import/export. The cluster and its data directory are removed when the run ends.
 
-GitHub Actions runs both suites on every push and pull request (`.github/workflows/tests.yml`).
+The UI suite provisions its own disposable Postgres/API stack and starts the storefront, then exercises password reset, email re-verification, session revocation, password changes and line-item return requests in Chromium. Install the browser once with `npx playwright install chromium`.
+
+GitHub Actions runs all suites on every push and pull request (`.github/workflows/tests.yml`).
 
 ## Project layout
 
