@@ -1,0 +1,19 @@
+{
+  "name": "commercecore",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted, buy-once Shopify alternative",
+  "scripts": {
+    "dev": "docker compose up --build",
+    "setup": "npm --prefix backend install && npm --prefix storefront install && npm --prefix admin install",
+    "seed": "node scripts/seed.js",
+    "keys": "node scripts/generate-keys.js",
+    "license": "node scripts/generate-license.js",
+    "import": "node scripts/shopify-import.js",
+    "test": "npm --prefix backend test",
+    "test:e2e": "npm --prefix backend run test:e2e",
+    "prisma": "npm --prefix backend run prisma:generate",
+    "backup": "bash scripts/backup.sh"
+  }
+}

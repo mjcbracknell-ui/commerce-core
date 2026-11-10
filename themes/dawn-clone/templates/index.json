@@ -1,0 +1,28 @@
+{
+  "sections": {
+    "hero": {
+      "type": "hero",
+      "settings": {
+        "eyebrow": "New season · free shipping over 100",
+        "heading": "Fewer, better things.",
+        "subheading": "Everyday pieces designed to be worn hard, washed often and kept for years. No platform fees, no subscriptions.",
+        "button_label": "Shop the collection",
+        "button_link": "/collections/all"
+      }
+    },
+    "featured": {
+      "type": "featured-products",
+      "settings": {
+        "heading": "This week's picks"
+      }
+    },
+    "story": {
+      "type": "rich-text",
+      "settings": {
+        "heading": "Made to be kept",
+        "body": "Free shipping over 100, 30-day returns and a real human on support. Every order supports an independent store."
+      }
+    }
+  },
+  "order": ["hero", "featured", "story"]
+}

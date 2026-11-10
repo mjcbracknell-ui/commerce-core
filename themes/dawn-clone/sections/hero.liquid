@@ -1,0 +1,10 @@
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow">{{ section.settings.eyebrow | default: 'New season' }}</p>
+    <h1>{{ section.settings.heading | default: 'Everyday essentials, built to last' }}</h1>
+    <p class="lede">{{ section.settings.subheading | default: 'Considered pieces, honest materials and no platform fees.' }}</p>
+    <a class="btn" href="{{ section.settings.button_link | default: '/collections/all' }}">
+      {{ section.settings.button_label | default: 'Shop the collection' }}
+    </a>
+  </div>
+</section>

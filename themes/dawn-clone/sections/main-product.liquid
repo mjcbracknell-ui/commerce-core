@@ -1,0 +1,19 @@
+<section class="wrap pdp">
+  <div class="media">
+    {% if product.featured_image %}
+      <img src="{{ product.featured_image }}" alt="{{ product.title }}">
+    {% else %}
+      <span>{{ product.title }}</span>
+    {% endif %}
+  </div>
+  <div>
+    {% if product.vendor %}<span class="badge">{{ product.vendor }}</span>{% endif %}
+    <h1>{{ product.title }}</h1>
+    <p class="price">{{ product.price | money: shop.currency }}</p>
+    <div class="desc">{{ product.description_html }}</div>
+    <div class="buy">
+      <p class="stock">{% if product.available %}In stock · ships in 1–2 days{% else %}Sold out{% endif %}</p>
+      <a class="btn" href="/cart">Add to cart</a>
+    </div>
+  </div>
+</section>

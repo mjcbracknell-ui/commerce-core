@@ -1,0 +1,314 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  password      String
+  name          String?
+  role          String         @default("owner")
+  twoFASecret   String?
+  twoFAEnabled  Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  refreshTokens RefreshToken[]
+  stores        StoreUser[]
+  auditLogs     AuditLog[]
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  userAgent String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Store {
+  id           String          @id @default(uuid())
+  name         String
+  domain       String          @unique
+  currency     String          @default("USD")
+  settings     Json            @default("{}")
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  users        StoreUser[]
+  products     Product[]
+  collections  Collection[]
+  customers    Customer[]
+  orders       Order[]
+  themes       Theme[]
+  discounts    Discount[]
+  giftCards    GiftCard[]
+  webhooks     Webhook[]
+  apiKeys      ApiKey[]
+  auditLogs    AuditLog[]
+  licenses     License[]
+}
+
+model StoreUser {
+  storeId String
+  userId  String
+  role    String @default("staff")
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, userId])
+}
+
+model Product {
+  id                String             @id @default(uuid())
+  storeId           String
+  store             Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  title             String
+  handle            String
+  descriptionHtml   String?
+  vendor            String?
+  productType       String?
+  status            String             @default("active")
+  tags              String[]           @default([])
+  images            Json               @default("[]")
+  metafields        Json?
+  featuredImage     String?
+  seoTitle          String?
+  seoDescription    String?
+  publishedAt       DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  variants          Variant[]
+  collectionProducts CollectionProduct[]
+
+  @@unique([storeId, handle])
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+}
+
+model Variant {
+  id             String   @id @default(uuid())
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  title          String   @default("Default Title")
+  sku            String?
+  price          Decimal  @default(0)
+  compareAtPrice Decimal?
+  inventory      Int      @default(0)
+  option1        String?
+  option2        String?
+  option3        String?
+  image          String?
+  position       Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([productId])
+  @@index([sku])
+}
+
+model Collection {
+  id              String             @id @default(uuid())
+  storeId         String
+  store           Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  title           String
+  handle          String
+  descriptionHtml String?
+  ruleType        String             @default("manual")
+  rules           Json?
+  image           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  products        CollectionProduct[]
+
+  @@unique([storeId, handle])
+}
+
+model CollectionProduct {
+  collectionId String
+  productId    String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  position     Int        @default(0)
+
+  @@id([collectionId, productId])
+}
+
+model Customer {
+  id          String   @id @default(uuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  email       String
+  firstName   String?
+  lastName    String?
+  phone       String?
+  note        String?
+  tags        String[] @default([])
+  totalSpent  Decimal  @default(0)
+  ordersCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  orders      Order[]
+
+  @@unique([storeId, email])
+  @@index([storeId, createdAt])
+}
+
+model Order {
+  id               String    @id @default(uuid())
+  storeId          String
+  store            Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  number           String
+  customerId       String?
+  customer         Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  email            String?
+  financialStatus  String    @default("pending")
+  fulfillmentStatus String   @default("unfulfilled")
+  currency         String    @default("USD")
+  subtotal         Decimal   @default(0)
+  discountTotal    Decimal   @default(0)
+  shippingTotal    Decimal   @default(0)
+  taxTotal         Decimal   @default(0)
+  total            Decimal   @default(0)
+  lineItems        Json      @default("[]")
+  shippingAddress  Json?
+  billingAddress   Json?
+  discountCode     String?
+  giftCardCode     String?
+  paymentMethod    String    @default("manual")
+  paymentIntentId  String?
+  trackingNumber   String?
+  notes            String?
+  cancelReason     String?
+  paidAt           DateTime?
+  fulfilledAt      DateTime?
+  canceledAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([storeId, number])
+  @@index([storeId, createdAt])
+  @@index([storeId, financialStatus])
+}
+
+model Discount {
+  id             String    @id @default(uuid())
+  storeId        String
+  store          Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  code           String
+  type           String    @default("percentage")
+  value          Decimal   @default(0)
+  usageLimit     Int?
+  usageCount     Int       @default(0)
+  minSubtotal    Decimal?
+  active         Boolean   @default(true)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([storeId, code])
+}
+
+model GiftCard {
+  id        String    @id @default(uuid())
+  storeId   String
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  code      String
+  balance   Decimal   @default(0)
+  currency  String    @default("USD")
+  active    Boolean   @default(true)
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([storeId, code])
+}
+
+model Theme {
+  id        String   @id @default(uuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  isActive  Boolean  @default(false)
+  files     Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([storeId])
+}
+
+model Webhook {
+  id              String            @id @default(uuid())
+  storeId         String
+  store           Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  topic           String
+  url             String
+  secret          String
+  active          Boolean           @default(true)
+  lastStatus      Int?
+  lastDeliveredAt DateTime?
+  createdAt       DateTime          @default(now())
+  deliveries      WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id           String   @id @default(uuid())
+  webhookId    String
+  webhook      Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  topic        String
+  payload      Json
+  status       Int?
+  durationMs   Int?
+  error        String?
+  attempts     Int      @default(1)
+  createdAt    DateTime @default(now())
+
+  @@index([webhookId, createdAt])
+}
+
+model ApiKey {
+  id         String    @id @default(uuid())
+  storeId    String
+  store      Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  key        String    @unique
+  name       String
+  scopes     String[]  @default([])
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model License {
+  key         String    @id
+  domain      String
+  tier        String
+  storeId     String?
+  store       Store?    @relation(fields: [storeId], references: [id])
+  issuedAt    DateTime  @default(now())
+  updatesUntil DateTime?
+  activatedAt DateTime?
+  revoked     Boolean   @default(false)
+  lastCheckAt DateTime?
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([storeId, createdAt])
+}

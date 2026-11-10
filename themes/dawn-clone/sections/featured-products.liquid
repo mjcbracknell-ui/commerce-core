@@ -1,0 +1,13 @@
+<section class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>{{ section.settings.heading | default: 'Featured products' }}</h2>
+      <a href="/collections/all">View all →</a>
+    </div>
+    <div class="grid">
+      {% for product in products %}
+        {% render 'product-card', product: product %}
+      {% endfor %}
+    </div>
+  </div>
+</section>

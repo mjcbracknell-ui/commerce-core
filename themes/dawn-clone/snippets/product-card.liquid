@@ -1,0 +1,14 @@
+<a class="card" href="/products/{{ product.handle }}">
+  <div class="media">
+    {% if product.featured_image %}
+      <img src="{{ product.featured_image }}" alt="{{ product.title }}" loading="lazy">
+    {% else %}
+      <span>{{ product.title }}</span>
+    {% endif %}
+  </div>
+  <div class="title">
+    <b>{{ product.title }}</b>
+    <span>{{ product.price | money: shop.currency }}</span>
+  </div>
+  {% if product.vendor %}<div class="meta">{{ product.vendor }}</div>{% endif %}
+</a>
