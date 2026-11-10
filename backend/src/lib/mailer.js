@@ -122,12 +122,42 @@ export async function sendCustomerVerification({ email, code, store }) {
   });
 }
 
-export async function sendOrderRefunded(order, store) {
+export async function sendOrderRefunded(order, store, amount = null) {
   if (!order.email) return { sent: false, reason: 'no_email' };
+  const refundText =
+    amount == null
+      ? `We have refunded order ${order.number}.`
+      : `We have refunded ${money(amount, order.currency)} for order ${order.number}.`;
   return send({
     to: order.email,
     subject: `Refund issued for order ${order.number} - ${store?.name || 'Commerce Core'}`,
-    html: wrapper(`Refund issued`, `<p>We have refunded order ${order.number}.</p>`),
+    html: wrapper(`Refund issued`, `<p>${refundText}</p>`),
+  });
+}
+
+export async function sendCustomerPasswordReset({ email, code, store }) {
+  return send({
+    to: email,
+    subject: `Reset your ${store?.name || 'store'} password`,
+    html: wrapper(
+      'Reset your password',
+      `<p>Use this code to choose a new password:</p>
+       <p style="font-size:28px;letter-spacing:6px;font-weight:700">${escapeHtml(code)}</p>
+       <p style="color:#555">This code expires in 15 minutes. If you did not request a reset, you can ignore this email.</p>`,
+    ),
+  });
+}
+
+export async function sendCustomerEmailChange({ email, code, store }) {
+  return send({
+    to: email,
+    subject: `Confirm your new ${store?.name || 'store'} email`,
+    html: wrapper(
+      'Confirm your new email address',
+      `<p>Use this code to finish changing the email on your account:</p>
+       <p style="font-size:28px;letter-spacing:6px;font-weight:700">${escapeHtml(code)}</p>
+       <p style="color:#555">This code expires in 15 minutes. If you did not request this change, ignore this email.</p>`,
+    ),
   });
 }
 

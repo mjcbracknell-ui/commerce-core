@@ -13,15 +13,16 @@ const ACCESS_TTL = '30m';
 const ACCESS_TTL_MS = 30 * 60 * 1000;
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+export const hashRefreshToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
-export function signCustomerAccessToken(customer) {
+export function signCustomerAccessToken(customer, sessionId = null) {
   return jwt.sign(
     {
       sub: customer.id,
       storeId: customer.storeId,
       email: customer.email,
       type: 'customer',
+      ...(sessionId ? { sid: sessionId } : {}),
     },
     CUSTOMER_SECRET,
     { expiresIn: ACCESS_TTL, audience: CUSTOMER_AUDIENCE },
@@ -49,23 +50,23 @@ export function clearCustomerCookies(res) {
 }
 
 export async function issueCustomerSession(customer, userAgent) {
-  const token = signCustomerAccessToken(customer);
   const refreshToken = crypto.randomBytes(48).toString('base64url');
-  await prisma.customerSession.create({
+  const session = await prisma.customerSession.create({
     data: {
       customerId: customer.id,
-      tokenHash: hashToken(refreshToken),
+      tokenHash: hashRefreshToken(refreshToken),
       userAgent: userAgent || null,
       expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
     },
   });
-  return { token, refreshToken };
+  const token = signCustomerAccessToken(customer, session.id);
+  return { token, refreshToken, sessionId: session.id };
 }
 
 export async function rotateCustomerSession(refreshToken, userAgent) {
   if (!refreshToken) return null;
   const record = await prisma.customerSession.findUnique({
-    where: { tokenHash: hashToken(refreshToken) },
+    where: { tokenHash: hashRefreshToken(refreshToken) },
     include: { customer: true },
   });
   if (!record || record.revokedAt || record.expiresAt < new Date()) return null;
@@ -81,7 +82,25 @@ export async function rotateCustomerSession(refreshToken, userAgent) {
 export async function revokeCustomerSession(refreshToken) {
   if (!refreshToken) return;
   await prisma.customerSession.updateMany({
-    where: { tokenHash: hashToken(refreshToken), revokedAt: null },
+    where: { tokenHash: hashRefreshToken(refreshToken), revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
+
+export async function revokeAllCustomerSessions(customerId) {
+  return prisma.customerSession.updateMany({
+    where: { customerId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
+
+export async function revokeOtherCustomerSessions(customerId, sessionId) {
+  return prisma.customerSession.updateMany({
+    where: {
+      customerId,
+      revokedAt: null,
+      ...(sessionId ? { id: { not: sessionId } } : {}),
+    },
     data: { revokedAt: new Date() },
   });
 }
@@ -133,6 +152,7 @@ export async function authenticateCustomer(req, res, next) {
     }
 
     req.customer = customer;
+    req.customerSessionId = decoded.sid || null;
     return next();
   } catch (error) {
     return next(error);

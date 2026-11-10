@@ -245,6 +245,7 @@ const cartSchema = z.object({
   items: z.array(z.object({ variantId: z.string(), quantity: z.coerce.number().int().positive() })).default([]),
   discountCode: z.string().nullable().optional(),
   giftCardCode: z.string().nullable().optional(),
+  shippingAddress: z.record(z.any()).optional(),
 });
 
 router.post(
@@ -261,6 +262,7 @@ async function resolveCartSafe(store, body) {
     items: body.items,
     discountCode: body.discountCode,
     giftCardCode: body.giftCardCode,
+    shippingAddress: body.shippingAddress || null,
   });
   return cart;
 }
@@ -400,6 +402,7 @@ router.get(
       include: {
         customer: true,
         fulfillments: { orderBy: { createdAt: 'asc' } },
+        returns: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!order) throw notFound('Order not found');

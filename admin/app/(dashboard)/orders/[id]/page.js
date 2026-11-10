@@ -13,6 +13,7 @@ export default function OrderDetailPage() {
   const [carrier, setCarrier] = useState('');
   const [quantities, setQuantities] = useState({});
   const [notifyCustomer, setNotifyCustomer] = useState(true);
+  const [returnForm, setReturnForm] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -72,6 +73,52 @@ export default function OrderDetailPage() {
     setQuantities((current) => ({ ...current, [variantId]: next }));
   };
 
+  const startReturn = () => {
+    const items = {};
+    const reasons = {};
+    for (const item of order?.returnable_items || []) {
+      items[item.variantId] = 0;
+      reasons[item.variantId] = 'other';
+    }
+    setReturnForm({ items, reasons, resolution: 'refund', note: '' });
+  };
+
+  const createReturn = async () => {
+    const items = Object.entries(returnForm.items)
+      .map(([variantId, quantity]) => ({
+        variantId,
+        quantity: Number(quantity) || 0,
+        reason: returnForm.reasons[variantId] || 'other',
+      }))
+      .filter((item) => item.quantity > 0);
+    if (!items.length) {
+      setError('Choose at least one item to return.');
+      return;
+    }
+    await run('Return created.', () =>
+      api(`/api/admin/orders/${order.id}/returns`, {
+        method: 'POST',
+        body: {
+          items,
+          resolution: returnForm.resolution,
+          ...(returnForm.note ? { note: returnForm.note } : {}),
+        },
+      }),
+    );
+    setReturnForm(null);
+  };
+
+  const completeExchange = (record) => {
+    const trackingNumber = window.prompt('Replacement tracking number (optional):') || '';
+    const trackingUrl = trackingNumber ? window.prompt('Tracking URL (optional):') || '' : '';
+    run('Exchange completed.', () =>
+      api(`/api/admin/returns/${record.id}/exchange`, {
+        method: 'POST',
+        body: { trackingNumber: trackingNumber || undefined, trackingUrl: trackingUrl || undefined },
+      }),
+    );
+  };
+
   if (!order) {
     return (
       <>
@@ -99,6 +146,15 @@ export default function OrderDetailPage() {
     item.variantId ? Math.max(0, Number(item.quantity || 0) - (shippedByVariant[item.variantId] || 0)) : 0;
   const totalRemaining = lineItems.reduce((sum, item) => sum + remainingFor(item), 0);
   const selectedCount = Object.values(quantities).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
+  const returns = order.returns || [];
+  const returnable = order.returnable_items || [];
+  const returnReasons = [
+    ['wrong_size', 'Wrong size or fit'],
+    ['damaged', 'Damaged or faulty'],
+    ['not_as_described', 'Not as described'],
+    ['changed_mind', 'Changed my mind'],
+    ['other', 'Other'],
+  ];
 
   const createShipment = () => {
     const items = Object.entries(quantities)
@@ -334,6 +390,177 @@ export default function OrderDetailPage() {
               ))
             ) : (
               <p className="muted small">No shipments yet.</p>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="toolbar" style={{ justifyContent: 'space-between' }}>
+              <h2 style={{ margin: 0 }}>Returns &amp; exchanges</h2>
+              {returnable.length > 0 && !returnForm ? (
+                <button className="btn secondary small" type="button" onClick={startReturn}>
+                  Create return
+                </button>
+              ) : null}
+            </div>
+
+            {returnForm ? (
+              <div style={{ marginTop: 12 }}>
+                {returnable.map((item) => (
+                  <div className="field" key={item.variantId}>
+                    <label>{item.title}{item.variantTitle ? ` — ${item.variantTitle}` : ''}</label>
+                    <div className="row">
+                      <input
+                        type="number"
+                        min="0"
+                        max={item.quantity}
+                        value={returnForm.items[item.variantId] ?? 0}
+                        onChange={(event) =>
+                          setReturnForm((current) => ({
+                            ...current,
+                            items: {
+                              ...current.items,
+                              [item.variantId]: Math.max(0, Math.min(item.quantity, Number(event.target.value) || 0)),
+                            },
+                          }))
+                        }
+                        aria-label={`Quantity of ${item.title} to return`}
+                      />
+                      <select
+                        value={returnForm.reasons[item.variantId] || 'other'}
+                        onChange={(event) =>
+                          setReturnForm((current) => ({
+                            ...current,
+                            reasons: { ...current.reasons, [item.variantId]: event.target.value },
+                          }))
+                        }
+                        aria-label={`Reason for returning ${item.title}`}
+                      >
+                        {returnReasons.map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <span className="hint">{item.quantity} available to return</span>
+                  </div>
+                ))}
+                <div className="field">
+                  <label>Resolution</label>
+                  <select
+                    value={returnForm.resolution}
+                    onChange={(event) => setReturnForm((current) => ({ ...current, resolution: event.target.value }))}
+                  >
+                    <option value="refund">Refund</option>
+                    <option value="exchange">Exchange</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Notes</label>
+                  <textarea
+                    rows={3}
+                    value={returnForm.note}
+                    onChange={(event) => setReturnForm((current) => ({ ...current, note: event.target.value }))}
+                    placeholder={returnForm.resolution === 'exchange' ? 'Replacement preferences…' : 'Return notes…'}
+                  />
+                </div>
+                <div className="btn-row">
+                  <button className="btn accent" type="button" disabled={busy} onClick={createReturn}>
+                    Create return
+                  </button>
+                  <button className="btn secondary" type="button" onClick={() => setReturnForm(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {returns.length ? (
+              returns.map((record) => (
+                <div className="shipment" key={record.id}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                    <strong>{record.resolution === 'exchange' ? 'Exchange' : 'Return'}</strong>
+                    <span className={`badge ${record.status}`}>{record.status}</span>
+                  </div>
+                  <p className="muted small" style={{ margin: '4px 0' }}>
+                    {formatDate(record.created_at, true)} · {record.requested_by}
+                  </p>
+                  <p style={{ margin: '6px 0' }}>
+                    {(record.line_items || [])
+                      .map((item) => `${item.title} × ${item.quantity} (${item.reason})`)
+                      .join(', ')}
+                  </p>
+                  {record.note ? <p className="muted small">{record.note}</p> : null}
+                  {record.refund_amount > 0 ? (
+                    <p className="small">Refunded {formatMoney(record.refund_amount, order.currency)}</p>
+                  ) : null}
+                  {record.exchange_tracking_number ? (
+                    <p className="small">Replacement tracking: <strong>{record.exchange_tracking_number}</strong></p>
+                  ) : null}
+                  <div className="btn-row" style={{ marginTop: 8 }}>
+                    {record.status === 'requested' ? (
+                      <>
+                        <button
+                          className="btn secondary small"
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            run('Return marked received and restocked.', () =>
+                              api(`/api/admin/returns/${record.id}/receive`, {
+                                method: 'POST',
+                                body: { restock: true },
+                              }),
+                            )
+                          }
+                        >
+                          Receive &amp; restock
+                        </button>
+                        <button
+                          className="btn danger small"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            if (!window.confirm('Reject this return?')) return;
+                            run('Return rejected.', () =>
+                              api(`/api/admin/returns/${record.id}/reject`, { method: 'POST' }),
+                            );
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    ) : null}
+                    {record.status === 'received' && record.resolution === 'refund' ? (
+                      <button
+                        className="btn accent small"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          if (!window.confirm(`Refund the returned items for this order?`)) return;
+                          run('Refund recorded.', () =>
+                            api(`/api/admin/returns/${record.id}/refund`, {
+                              method: 'POST',
+                              body: { notifyCustomer: true },
+                            }),
+                          );
+                        }}
+                      >
+                        Refund returned items
+                      </button>
+                    ) : null}
+                    {record.status === 'received' && record.resolution === 'exchange' ? (
+                      <button
+                        className="btn accent small"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => completeExchange(record)}
+                      >
+                        Complete exchange
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="muted small" style={{ marginTop: 12 }}>No returns or exchanges yet.</p>
             )}
           </div>
 

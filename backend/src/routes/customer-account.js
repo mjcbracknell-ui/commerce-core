@@ -11,15 +11,19 @@ import {
   serializeAddress,
   serializeCustomerAccount,
   serializeOrder,
+  serializeReturn,
 } from '../lib/serializers.js';
-import { sendCustomerVerification } from '../lib/mailer.js';
+import { sendCustomerEmailChange, sendCustomerPasswordReset, sendCustomerVerification } from '../lib/mailer.js';
+import { createReturn } from '../services/returns.js';
 import {
   authenticateCustomer,
   clearCustomerCookies,
   createVerificationCode,
   customerRefreshCookie,
   issueCustomerSession,
+  revokeAllCustomerSessions,
   revokeCustomerSession,
+  revokeOtherCustomerSessions,
   rotateCustomerSession,
   setCustomerCookies,
   verificationCodeMatches,
@@ -37,7 +41,8 @@ const authLimiter = rateLimit({
 });
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
-const devCode = (code) => (!config.isProd && !config.smtp.host ? { verification_code: code } : {});
+const devCode = (code, key = 'verification_code') =>
+  !config.isProd && !config.smtp.host ? { [key]: code } : {};
 const customerInclude = {
   addresses: { orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] },
 };
@@ -45,6 +50,7 @@ const customerInclude = {
 const orderInclude = {
   customer: true,
   fulfillments: { orderBy: { createdAt: 'asc' } },
+  returns: { orderBy: { createdAt: 'asc' } },
 };
 
 async function accountOrders(storeId, customer) {
@@ -181,6 +187,76 @@ router.post(
   }),
 );
 
+const forgotPasswordSchema = z.object({ email: z.string().email() });
+
+router.post(
+  '/forgot-password',
+  authLimiter,
+  validateBody(forgotPasswordSchema),
+  asyncHandler(async (req, res) => {
+    const email = normalizeEmail(req.body.email);
+    const customer = await prisma.customer.findUnique({
+      where: { storeId_email: { storeId: req.storeId, email } },
+    });
+
+    let code = null;
+    if (customer?.emailVerifiedAt && customer.passwordHash) {
+      const generated = createVerificationCode();
+      code = generated.code;
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: {
+          passwordResetCodeHash: generated.hash,
+          passwordResetExpiresAt: generated.expiresAt,
+        },
+      });
+      await sendCustomerPasswordReset({ email, code, store: req.store }).catch(() => {});
+    }
+
+    return res.json({ ok: true, ...(code ? devCode(code, 'reset_code') : {}) });
+  }),
+);
+
+const resetPasswordSchema = z.object({
+  email: z.string().email(),
+  code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+  password: z.string().min(8, 'Password must be at least 8 characters').max(200),
+});
+
+router.post(
+  '/reset-password',
+  authLimiter,
+  validateBody(resetPasswordSchema),
+  asyncHandler(async (req, res) => {
+    const email = normalizeEmail(req.body.email);
+    const customer = await prisma.customer.findUnique({
+      where: { storeId_email: { storeId: req.storeId, email } },
+    });
+    if (
+      !customer ||
+      !customer.passwordResetCodeHash ||
+      !customer.passwordResetExpiresAt ||
+      customer.passwordResetExpiresAt < new Date() ||
+      !verificationCodeMatches(req.body.code, customer.passwordResetCodeHash)
+    ) {
+      throw badRequest('Reset code is invalid or expired. Request a new code.');
+    }
+
+    const passwordHash = await bcrypt.hash(req.body.password, 12);
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        passwordHash,
+        passwordResetCodeHash: null,
+        passwordResetExpiresAt: null,
+      },
+    });
+    await revokeAllCustomerSessions(customer.id);
+    clearCustomerCookies(res);
+    return res.json({ ok: true });
+  }),
+);
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
@@ -250,6 +326,164 @@ router.post(
 
 router.use(authenticateCustomer);
 
+router.patch(
+  '/email',
+  authLimiter,
+  validateBody(
+    z.object({
+      email: z.string().email(),
+      password: z.string().min(1),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const customer = await prisma.customer.findUnique({ where: { id: req.customer.id } });
+    if (!customer?.passwordHash || !(await bcrypt.compare(req.body.password, customer.passwordHash))) {
+      throw badRequest('Current password is incorrect');
+    }
+
+    const email = normalizeEmail(req.body.email);
+    if (email === customer.email) throw badRequest('Enter a different email address');
+    const taken = await prisma.customer.findUnique({
+      where: { storeId_email: { storeId: req.storeId, email } },
+    });
+    if (taken && taken.id !== customer.id) throw badRequest('An account with this email already exists');
+
+    const { code, hash, expiresAt } = createVerificationCode();
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        pendingEmail: email,
+        emailChangeCodeHash: hash,
+        emailChangeExpiresAt: expiresAt,
+      },
+    });
+    await sendCustomerEmailChange({ email, code, store: req.store }).catch(() => {});
+    return res.json({
+      verification_required: true,
+      pending_email: email,
+      ...devCode(code),
+    });
+  }),
+);
+
+router.post(
+  '/email/verify',
+  authLimiter,
+  validateBody(z.object({ code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code') })),
+  asyncHandler(async (req, res) => {
+    const customer = await prisma.customer.findUnique({ where: { id: req.customer.id } });
+    if (
+      !customer?.pendingEmail ||
+      !customer.emailChangeCodeHash ||
+      !customer.emailChangeExpiresAt ||
+      customer.emailChangeExpiresAt < new Date() ||
+      !verificationCodeMatches(req.body.code, customer.emailChangeCodeHash)
+    ) {
+      throw badRequest('Email change code is invalid or expired.');
+    }
+
+    const taken = await prisma.customer.findUnique({
+      where: { storeId_email: { storeId: req.storeId, email: customer.pendingEmail } },
+    });
+    if (taken && taken.id !== customer.id) throw badRequest('An account with this email already exists');
+
+    const updated = await prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        email: customer.pendingEmail,
+        emailVerifiedAt: new Date(),
+        pendingEmail: null,
+        emailChangeCodeHash: null,
+        emailChangeExpiresAt: null,
+      },
+      include: customerInclude,
+    });
+    await revokeAllCustomerSessions(updated.id);
+    const session = await issueCustomerSession(updated, req.headers['user-agent']);
+    setCustomerCookies(res, session);
+    return res.json({
+      customer: serializeCustomerAccount(updated),
+      token: session.token,
+      refresh_token: session.refreshToken,
+    });
+  }),
+);
+
+router.post(
+  '/change-password',
+  authLimiter,
+  validateBody(
+    z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(8, 'Password must be at least 8 characters').max(200),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const customer = await prisma.customer.findUnique({ where: { id: req.customer.id } });
+    if (!customer?.passwordHash || !(await bcrypt.compare(req.body.currentPassword, customer.passwordHash))) {
+      throw badRequest('Current password is incorrect');
+    }
+
+    const passwordHash = await bcrypt.hash(req.body.newPassword, 12);
+    const updated = await prisma.customer.update({
+      where: { id: customer.id },
+      data: { passwordHash },
+      include: customerInclude,
+    });
+    await revokeAllCustomerSessions(updated.id);
+    const session = await issueCustomerSession(updated, req.headers['user-agent']);
+    setCustomerCookies(res, session);
+    return res.json({
+      customer: serializeCustomerAccount(updated),
+      token: session.token,
+      refresh_token: session.refreshToken,
+    });
+  }),
+);
+
+router.get(
+  '/sessions',
+  asyncHandler(async (req, res) => {
+    const sessions = await prisma.customerSession.findMany({
+      where: { customerId: req.customer.id, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return res.json({
+      sessions: sessions.map((session) => ({
+        id: session.id,
+        user_agent: session.userAgent,
+        created_at: session.createdAt,
+        expires_at: session.expiresAt,
+        current: session.id === req.customerSessionId,
+      })),
+    });
+  }),
+);
+
+router.post(
+  '/sessions/revoke-others',
+  asyncHandler(async (req, res) => {
+    const result = await revokeOtherCustomerSessions(req.customer.id, req.customerSessionId);
+    return res.json({ ok: true, revoked: result.count });
+  }),
+);
+
+router.delete(
+  '/sessions/:id',
+  asyncHandler(async (req, res) => {
+    const session = await prisma.customerSession.findFirst({
+      where: { id: req.params.id, customerId: req.customer.id, revokedAt: null },
+    });
+    if (!session) throw notFound('Session not found');
+    await prisma.customerSession.update({
+      where: { id: session.id },
+      data: { revokedAt: new Date() },
+    });
+    if (session.id === req.customerSessionId) clearCustomerCookies(res);
+    return res.json({ ok: true, current: session.id === req.customerSessionId });
+  }),
+);
+
 router.get(
   '/',
   asyncHandler(async (req, res) => {
@@ -311,6 +545,44 @@ router.get(
     });
     if (!order) throw notFound('Order not found');
     return res.json({ order: serializeOrder(order, { includeCustomer: false }) });
+  }),
+);
+
+router.post(
+  '/orders/:number/returns',
+  validateBody(
+    z.object({
+      items: z
+        .array(
+          z.object({
+            variantId: z.string().min(1),
+            quantity: z.coerce.number().int().positive(),
+            reason: z.string().trim().min(1).max(300),
+          }),
+        )
+        .min(1),
+      resolution: z.enum(['refund', 'exchange']).default('refund'),
+      note: z.string().trim().max(2000).nullable().optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.findFirst({
+      where: {
+        storeId: req.storeId,
+        number: req.params.number,
+        OR: [{ customerId: req.customer.id }, { email: req.customer.email }],
+      },
+      include: orderInclude,
+    });
+    if (!order) throw notFound('Order not found');
+    const created = await createReturn({
+      order,
+      items: req.body.items,
+      note: req.body.note || null,
+      resolution: req.body.resolution,
+      requestedBy: 'customer',
+    });
+    return res.status(201).json({ return: serializeReturn(created) });
   }),
 );
 

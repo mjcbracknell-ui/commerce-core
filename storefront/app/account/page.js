@@ -39,6 +39,10 @@ export default function AccountPage() {
   const router = useRouter();
   const [data, setData] = useState(null);
   const [profile, setProfile] = useState({ firstName: '', lastName: '', phone: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
+  const [emailForm, setEmailForm] = useState({ email: '', password: '' });
+  const [emailChange, setEmailChange] = useState(null);
+  const [sessions, setSessions] = useState([]);
   const [addresses, setAddresses] = useState([]);
   const [addressForm, setAddressForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -48,8 +52,12 @@ export default function AccountPage() {
 
   const load = useCallback(async () => {
     try {
-      const account = await apiFetch('/api/storefront/account');
+      const [account, sessionData] = await Promise.all([
+        apiFetch('/api/storefront/account'),
+        apiFetch('/api/storefront/account/sessions'),
+      ]);
       setData(account);
+      setSessions(sessionData.sessions || []);
       setAddresses(account.addresses || []);
       setProfile({
         firstName: account.customer.first_name || '',
@@ -151,6 +159,99 @@ export default function AccountPage() {
     }
   };
 
+  const changePassword = async (event) => {
+    event.preventDefault();
+    setSaving('password');
+    setError('');
+    setNotice('');
+    try {
+      await apiFetch('/api/storefront/account/change-password', {
+        method: 'POST',
+        body: passwordForm,
+      });
+      setPasswordForm({ currentPassword: '', newPassword: '' });
+      await load();
+      setNotice('Password changed. Other sessions were signed out.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving('');
+    }
+  };
+
+  const requestEmailChange = async (event) => {
+    event.preventDefault();
+    setSaving('email');
+    setError('');
+    setNotice('');
+    try {
+      const result = await apiFetch('/api/storefront/account/email', {
+        method: 'PATCH',
+        body: emailForm,
+      });
+      setEmailChange({
+        pendingEmail: result.pending_email,
+        code: result.verification_code || '',
+        devCode: result.verification_code || '',
+      });
+      setEmailForm({ email: '', password: '' });
+      setNotice('Enter the code sent to your new address to finish the change.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving('');
+    }
+  };
+
+  const verifyEmailChange = async (event) => {
+    event.preventDefault();
+    setSaving('email-verify');
+    setError('');
+    setNotice('');
+    try {
+      await apiFetch('/api/storefront/account/email/verify', {
+        method: 'POST',
+        body: { code: emailChange.code },
+      });
+      setEmailChange(null);
+      await load();
+      setNotice('Email address updated.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving('');
+    }
+  };
+
+  const revokeSession = async (session) => {
+    if (!window.confirm('Sign out this session?')) return;
+    setError('');
+    setNotice('');
+    try {
+      const result = await apiFetch(`/api/storefront/account/sessions/${session.id}`, { method: 'DELETE' });
+      if (result.current) {
+        router.replace('/account/login');
+        return;
+      }
+      await load();
+      setNotice('Session signed out.');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const revokeOtherSessions = async () => {
+    setError('');
+    setNotice('');
+    try {
+      await apiFetch('/api/storefront/account/sessions/revoke-others', { method: 'POST' });
+      await load();
+      setNotice('All other sessions were signed out.');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const logout = async () => {
     await apiFetch('/api/storefront/account/logout', { method: 'POST' }).catch(() => {});
     router.replace('/account/login');
@@ -199,6 +300,7 @@ export default function AccountPage() {
             <a href="#orders">Order history</a>
             <a href="#addresses">Saved addresses</a>
             <a href="#profile">Profile</a>
+            <a href="#security">Security</a>
           </nav>
           <button type="button" className="remove-link" onClick={logout}>
             Sign out
@@ -490,6 +592,147 @@ export default function AccountPage() {
                 </button>
               </div>
             </form>
+          </section>
+
+          <section className="account-panel" id="security">
+            <h2>Security</h2>
+            <p className="product-meta">
+              Change your email or password here. Changing either signs out your other devices.
+            </p>
+
+            {emailChange ? (
+              <form className="account-form" onSubmit={verifyEmailChange} style={{ marginTop: 18 }}>
+                <div className="notice">
+                  Enter the six-digit code sent to <strong>{emailChange.pendingEmail}</strong>.
+                  {emailChange.devCode ? <> Development code: <strong>{emailChange.devCode}</strong>.</> : null}
+                </div>
+                <div className="field">
+                  <label htmlFor="emailChangeCode">Verification code</label>
+                  <input
+                    id="emailChangeCode"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={emailChange.code}
+                    onChange={(event) =>
+                      setEmailChange((current) => ({
+                        ...current,
+                        code: event.target.value.replace(/\D/g, '').slice(0, 6),
+                      }))
+                    }
+                  />
+                </div>
+                <div className="account-form-actions">
+                  <button className="btn accent" type="submit" disabled={saving === 'email-verify' || emailChange.code.length !== 6}>
+                    {saving === 'email-verify' ? 'Verifying…' : 'Confirm new email'}
+                  </button>
+                  <button className="btn secondary" type="button" onClick={() => setEmailChange(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form className="account-form" onSubmit={requestEmailChange} style={{ marginTop: 18 }}>
+                <h3 style={{ fontSize: '1.05rem' }}>Change email</h3>
+                <div className="row">
+                  <div className="field">
+                    <label htmlFor="newEmail">New email</label>
+                    <input
+                      id="newEmail"
+                      type="email"
+                      required
+                      value={emailForm.email}
+                      onChange={(event) => setEmailForm((current) => ({ ...current, email: event.target.value }))}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="emailPassword">Current password</label>
+                    <input
+                      id="emailPassword"
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      value={emailForm.password}
+                      onChange={(event) => setEmailForm((current) => ({ ...current, password: event.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="account-form-actions">
+                  <button className="btn secondary" type="submit" disabled={saving === 'email'}>
+                    {saving === 'email' ? 'Sending…' : 'Send confirmation code'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            <form className="account-form" onSubmit={changePassword} style={{ marginTop: 24 }}>
+              <h3 style={{ fontSize: '1.05rem' }}>Change password</h3>
+              <div className="row">
+                <div className="field">
+                  <label htmlFor="currentPassword">Current password</label>
+                  <input
+                    id="currentPassword"
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    value={passwordForm.currentPassword}
+                    onChange={(event) =>
+                      setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="newPassword">New password</label>
+                  <input
+                    id="newPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                    value={passwordForm.newPassword}
+                    onChange={(event) =>
+                      setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="account-form-actions">
+                <button className="btn accent" type="submit" disabled={saving === 'password'}>
+                  {saving === 'password' ? 'Changing…' : 'Change password'}
+                </button>
+              </div>
+            </form>
+
+            <div style={{ marginTop: 24 }}>
+              <div className="account-panel-head">
+                <div>
+                  <h3 style={{ fontSize: '1.05rem', margin: 0 }}>Signed-in sessions</h3>
+                  <p className="product-meta">{sessions.length} active session{sessions.length === 1 ? '' : 's'}.</p>
+                </div>
+                {sessions.length > 1 ? (
+                  <button className="remove-link" type="button" onClick={revokeOtherSessions}>
+                    Sign out other sessions
+                  </button>
+                ) : null}
+              </div>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {sessions.map((session) => (
+                  <div className="address-card" key={session.id}>
+                    <div className="address-card-head">
+                      <strong>{session.current ? 'This device' : 'Other device'}</strong>
+                      {session.current ? <span className="pill paid">Current</span> : null}
+                    </div>
+                    <p className="product-meta">
+                      {session.user_agent || 'Unknown browser'} · signed in {formatDate(session.created_at)}
+                    </p>
+                    {!session.current ? (
+                      <button className="remove-link" type="button" onClick={() => revokeSession(session)}>
+                        Sign out
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
           </section>
         </div>
       </div>

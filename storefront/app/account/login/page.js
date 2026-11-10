@@ -11,6 +11,7 @@ function LoginForm() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const resetComplete = searchParams.get('reset') === '1';
 
   const update = (key) => (event) =>
     setForm((current) => ({ ...current, [key]: event.target.value }));
@@ -42,6 +43,7 @@ function LoginForm() {
       <p className="eyebrow">Customer account</p>
       <h1>Welcome back</h1>
       <p style={{ color: 'var(--muted)' }}>Sign in to track orders and check out faster.</p>
+      {resetComplete ? <div className="notice success">Password updated. Sign in with your new password.</div> : null}
       {error ? <div className="notice error">{error}</div> : null}
       <form className="account-form" onSubmit={submit}>
         <div className="field">
@@ -65,6 +67,11 @@ function LoginForm() {
             value={form.password}
             onChange={update('password')}
           />
+          <span className="product-meta">
+            <Link href="/account/forgot-password" className="link-arrow">
+              Forgot your password?
+            </Link>
+          </span>
         </div>
         <button className="btn accent block" type="submit" disabled={submitting}>
           {submitting ? 'Signing in…' : 'Sign in'}

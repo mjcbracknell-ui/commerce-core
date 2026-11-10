@@ -44,16 +44,9 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (!payload.length) return;
     let alive = true;
-    Promise.all([
-      apiFetch('/api/storefront/cart', {
-        method: 'POST',
-        body: { items: payload, discountCode: discountCode || undefined, giftCardCode: giftCardCode || undefined },
-      }),
-      apiFetch('/api/storefront/settings'),
-    ])
-      .then(([cartData, settingsData]) => {
+    apiFetch('/api/storefront/settings')
+      .then((settingsData) => {
         if (!alive) return;
-        setCart(cartData.cart);
         setSettings(settingsData);
         setForm((current) => ({
           ...current,
@@ -65,7 +58,37 @@ export default function CheckoutPage() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, discountCode, giftCardCode]);
+  }, [signature]);
+
+  useEffect(() => {
+    if (!payload.length) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      apiFetch('/api/storefront/cart', {
+        method: 'POST',
+        body: {
+          items: payload,
+          discountCode: discountCode || undefined,
+          giftCardCode: giftCardCode || undefined,
+          shippingAddress: {
+            country: form.country,
+            region: form.region,
+            postal_code: form.postalCode,
+            city: form.city,
+          },
+        },
+      })
+        .then((cartData) => {
+          if (alive) setCart(cartData.cart);
+        })
+        .catch((err) => alive && setError(err.message));
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature, discountCode, giftCardCode, form.country, form.region]);
 
   useEffect(() => {
     let alive = true;

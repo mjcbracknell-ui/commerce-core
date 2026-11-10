@@ -55,6 +55,8 @@ model Store {
   apiKeys      ApiKey[]
   auditLogs    AuditLog[]
   licenses     License[]
+  shippingZones ShippingZone[]
+  taxRegions   TaxRegion[]
 }
 
 model StoreUser {
@@ -158,6 +160,11 @@ model Customer {
   emailVerifiedAt       DateTime?
   verificationCodeHash  String?
   verificationExpiresAt DateTime?
+  passwordResetCodeHash String?
+  passwordResetExpiresAt DateTime?
+  pendingEmail          String?
+  emailChangeCodeHash   String?
+  emailChangeExpiresAt  DateTime?
   lastLoginAt           DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -211,6 +218,7 @@ model Order {
   customerId       String?
   customer         Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   fulfillments     Fulfillment[]
+  returns          OrderReturn[]
   email            String?
   financialStatus  String    @default("pending")
   fulfillmentStatus String   @default("unfulfilled")
@@ -219,6 +227,7 @@ model Order {
   discountTotal    Decimal   @default(0)
   shippingTotal    Decimal   @default(0)
   taxTotal         Decimal   @default(0)
+  refundedTotal    Decimal   @default(0)
   total            Decimal   @default(0)
   lineItems        Json      @default("[]")
   shippingAddress  Json?
@@ -254,6 +263,78 @@ model Fulfillment {
   updatedAt      DateTime @updatedAt
 
   @@index([orderId])
+}
+
+model OrderReturn {
+  id                    String   @id @default(uuid())
+  orderId               String
+  order                 Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status                String   @default("requested")
+  resolution            String   @default("refund")
+  reason                String?
+  note                  String?
+  lineItems             Json     @default("[]")
+  exchangeItems         Json     @default("[]")
+  restock               Boolean  @default(true)
+  refundAmount          Decimal  @default(0)
+  requestedBy           String   @default("customer")
+  receivedAt            DateTime?
+  refundedAt            DateTime?
+  exchangeFulfilledAt   DateTime?
+  exchangeCarrier       String?
+  exchangeTrackingNumber String?
+  exchangeTrackingUrl   String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([orderId, status])
+}
+
+model ShippingZone {
+  id        String        @id @default(uuid())
+  storeId   String
+  store     Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  countries String[]      @default([])
+  regions   String[]      @default([])
+  position  Int           @default(0)
+  active    Boolean       @default(true)
+  rates     ShippingRate[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([storeId, position])
+}
+
+model ShippingRate {
+  id             String       @id @default(uuid())
+  zoneId         String
+  zone           ShippingZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  name           String
+  rate           Decimal      @default(0)
+  minSubtotal    Decimal?
+  maxSubtotal    Decimal?
+  freeOver       Decimal?
+  position       Int          @default(0)
+  active         Boolean      @default(true)
+
+  @@index([zoneId, position])
+}
+
+model TaxRegion {
+  id        String   @id @default(uuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  country   String
+  region    String?
+  rate      Decimal  @default(0)
+  position  Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([storeId, country])
 }
 
 model Discount {

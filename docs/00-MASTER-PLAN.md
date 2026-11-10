@@ -18,10 +18,12 @@ License: RSA-2048 sign/verify, offline + online heartbeat
 
 ## Phases
 1. Auth + Stores + Products — DONE (JWT/refresh, 2FA, store scoping, variants, CSV/Shopify import)
-2. Cart + Checkout + Orders + Discounts + Gift Cards — DONE (server-side pricing, stock guards, refunds, partial and multi-shipment fulfilment with carrier tracking, gift cards)
+2. Cart + Checkout + Orders + Discounts + Gift Cards — DONE (server-side pricing, stock guards, returns/exchanges with restock and item-linked refunds, partial and multi-shipment fulfilment with carrier tracking, gift cards)
 3. Themes + Liquid + Storefront — DONE (ZIP upload, sections/snippets, preview, bundled Dawn clone)
 4. Apps + Webhooks + API Keys — DONE (integration catalog, signed webhooks with delivery logs, storefront API keys)
 5. Email + POS + Multi-vendor + Marketplace — Email DONE (SMTP order/fulfilment/refund mail). POS, multi-vendor and marketplace are not included.
+
+Shipping zones and regional tax rates are DONE; the store-wide tax and flat-shipping settings remain fallbacks.
 6. License + Billing for YOUR sales + APK — DONE (RSA-2048 keys, verify/activate/revoke, Expo admin app)
 
 ## Shopify Interchangeability Checklist
@@ -32,3 +34,6 @@ License: RSA-2048 sign/verify, offline + online heartbeat
 - Admin REST /api/admin/* — DONE
 - Storefront API /api/storefront/* — DONE
 - Webhook topics: orders/create, products/update etc — DONE with HMAC signatures
+- Customer accounts, recovery, saved addresses and order history — DONE
+- Line-item returns, exchanges, restocking and item-linked refunds — DONE
+- Shipping zones, destination-based rates and regional tax — DONE

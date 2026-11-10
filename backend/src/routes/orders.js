@@ -4,8 +4,9 @@ import prisma from '../db.js';
 import { asyncHandler, badRequest, notFound, parseIntParam } from '../lib/http.js';
 import { validateBody } from '../middleware/validate.js';
 import { requireRole } from '../middleware/auth.js';
-import { serializeFulfillment, serializeOrder } from '../lib/serializers.js';
+import { serializeFulfillment, serializeOrder, serializeReturn } from '../lib/serializers.js';
 import { placeOrder, markOrderPaid } from '../services/orders.js';
+import { createReturn } from '../services/returns.js';
 import { dispatchEventLater } from '../lib/webhooks.js';
 import { sendOrderFulfilled, sendOrderRefunded } from '../lib/mailer.js';
 
@@ -14,6 +15,7 @@ const router = express.Router();
 const orderInclude = {
   customer: true,
   fulfillments: { orderBy: { createdAt: 'asc' } },
+  returns: { orderBy: { createdAt: 'asc' } },
 };
 
 const lineItemVariantId = (item) => item?.variantId || item?.variant_id || null;
@@ -204,6 +206,45 @@ router.post(
   }),
 );
 
+const returnSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        variantId: z.string().min(1),
+        quantity: z.coerce.number().int().positive(),
+        reason: z.string().trim().min(1).max(300),
+      }),
+    )
+    .min(1),
+  resolution: z.enum(['refund', 'exchange']).default('refund'),
+  note: z.string().trim().max(2000).nullable().optional(),
+  exchangeItems: z
+    .array(z.object({ variantId: z.string().min(1), quantity: z.coerce.number().int().positive() }))
+    .optional(),
+});
+
+router.post(
+  '/:id/returns',
+  requireRole('owner', 'admin'),
+  validateBody(returnSchema),
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, storeId: req.storeId },
+      include: orderInclude,
+    });
+    if (!order) throw notFound('Order not found');
+    const created = await createReturn({
+      order,
+      items: req.body.items,
+      note: req.body.note || null,
+      resolution: req.body.resolution,
+      exchangeItems: req.body.exchangeItems || [],
+      requestedBy: 'admin',
+    });
+    return res.status(201).json({ return: serializeReturn(created) });
+  }),
+);
+
 const refundSchema = z.object({
   amount: z.coerce.number().min(0).optional(),
   notifyCustomer: z.boolean().default(true),
@@ -218,16 +259,23 @@ router.post(
     if (!existing) throw notFound('Order not found');
     if (existing.financialStatus === 'refunded') throw badRequest('Order is already refunded');
 
-    const amount = req.body.amount ?? Number(existing.total);
-    const status = amount >= Number(existing.total) ? 'refunded' : 'partially_refunded';
+    const remaining = Math.max(0, Number(existing.total) - Number(existing.refundedTotal || 0));
+    const amount = req.body.amount ?? remaining;
+    if (amount <= 0) throw badRequest('Order has no remaining refundable balance');
+    if (amount > remaining + 0.001) {
+      throw badRequest(`Only ${remaining.toFixed(2)} remains refundable on this order`);
+    }
+
+    const refundedTotal = Math.min(Number(existing.total), Number(existing.refundedTotal || 0) + amount);
+    const status = refundedTotal >= Number(existing.total) - 0.001 ? 'refunded' : 'partially_refunded';
 
     const order = await prisma.order.update({
       where: { id: existing.id },
-      data: { financialStatus: status },
+      data: { financialStatus: status, refundedTotal },
       include: orderInclude,
     });
     dispatchEventLater(req.storeId, 'orders/refunded', { ...serializeOrder(order), refund_amount: amount });
-    if (req.body.notifyCustomer) sendOrderRefunded(order, req.store).catch(() => {});
+    if (req.body.notifyCustomer) sendOrderRefunded(order, req.store, amount).catch(() => {});
     return res.json({ order: serializeOrder(order), refund_amount: amount });
   }),
 );
